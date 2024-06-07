@@ -1,0 +1,8 @@
+{:aliases {:test {:exec-args {}
+                  :exec-fn kaocha.runner/exec-fn
+                  :extra-deps {lambdaisland/kaocha
+                                 {:mvn/version
+                                    "1.91.1392"}}}}
+ :deps {cnuernber/dtype-next {:mvn/version "10.113"}
+        generateme/fastmath {:mvn/version "2.4.0"}}
+ :paths ["src"]}

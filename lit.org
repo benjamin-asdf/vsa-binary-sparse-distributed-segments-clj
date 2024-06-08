@@ -1,11 +1,10 @@
 * Literature
 
-
 * 1
 
- Laiho et.al. 2015
- High-Dimensional Computing with Sparse Vectors
- https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_with_Sparse_Vectors
+Laiho et.al. 2015
+High-Dimensional Computing with Sparse Vectors
+https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_with_Sparse_Vectors
 
 
 * 2
@@ -13,16 +12,3 @@ Schlegel et.al. 2021  A comparison of Vector Symbolic Architectures
 
 http://www.arxiv.org/abs/2001.11797
 arXiv:2001.11797
-
-
-
-
-
-
-
-
-
-* (3)
-
-capacity analysis
-https://arxiv.org/abs/2301.10352

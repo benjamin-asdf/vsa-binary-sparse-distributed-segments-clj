@@ -147,36 +147,36 @@
 ;; 3. Permutation
 ;; -------------------
 ;;
-;; Permutation allows us to 'hide' data in an HDV `A`, (`protect`).
-;; This is useful:
-;;
-;; - To represent the quotation `'A` of `A`
-;; - To represent causality, or direction
-;;
-;; E.g.
-;; (bundle A (permute B))
-;; For 'B follows A'
-;;
-;; More generally, this can be used to encode sequences with a sumset (see below), by permuting the ith element ith times.
-;;
-;; - To randomize vectors (random permutation) (not sure how relevant with BSDC)
-;;
 
 (defn permute-n
-  "Shift the segments of `a` circularly."
+  "Returns a new vector where each segment of `a` is circularly by `n`."
   ([a n] (permute-n a n default-opts))
-  ([a n {:bsdc-seg/keys [segment-length]}]
-   ;; (direction doesn't actually matter of course, just that inverse is the inverse)
-   (dtt/rotate a [(* -1 n segment-length)])))
-
-(defn permute-inverse-n
-  "See [[permute-n]]"
-  [a n]
-  (permute-n a (* -1 n)))
+  ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
+   (-> a
+       (dtt/reshape [segment-count segment-length])
+       (dtt/map-axis
+        (fn [segment] (dtt/rotate segment [n])))
+       (dtt/reshape [N]))))
 
 (defn permute
-  "Default permute 1 time.
-  See [[permute-n]]"
+  "
+  Returns the canonical permutation of `a`.
+
+  Permutation allows us to 'hide' data in an HDV `A`, (also called `protect`).
+  This is useful:
+
+  - To represent the quotation `'A` of `A`
+  - To represent causality, direction or something in a set:
+
+  E.g.
+  (bundle A (permute B))
+  For 'B follows A'
+
+  More generally, this can be used to encode sequences with a sumset (see below), by permuting the ith element ith times.
+
+  - To randomize vectors (random permutation) (not sure how relevant with BSDC)
+
+"
   [a]
   (permute-n a 1))
 
@@ -185,6 +185,13 @@
   See [[permute-n]]"
   [a]
   (permute-n a -1))
+
+#_(t/deftest permute-inverse-test
+  (doseq
+      [n (range 500)]
+      (let [a (->hv)]
+        (t/is (= a (permute-inverse (permute a)))))))
+
 
 
 ;; ------------

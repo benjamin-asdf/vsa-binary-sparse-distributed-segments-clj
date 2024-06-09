@@ -70,10 +70,34 @@
                                  segment-count)}))
 
 (defn ->hv
+  "
+  Returns a fresh, random hypervector - the element of VSA.
+
+  __Binary Segmented Sparse__ :
+
+
+    <------ N bits wide, typically 10.000         --->
+
+  +-----------+-----------+------------+------------------+
+  | _ _ _ _ 1 | _ 1 _ ..  |     1      |                  |
+  +-----------+-----------+------------+------------------+
+    s          s            s             ... segment-count (~100)
+  <----------->
+  segment-length (~100)
+
+
+  Each segment has 1 (random) bit non-zero.
+
+  In order to make it sparse, we only set 1 bit per segment.
+
+  For operation, see:
+  [[thin]], [[maximally-sparse?]], [[similarity]], [[bundle]], [[bind]], [[unbind]]
+  "
   ([] (->hv default-opts))
   ([{:bsdc-seg/keys [segment-count segment-length N]}]
    (let [indices (repeatedly segment-count
-                             #(fm.rand/irand segment-length))
+                             #(fm.rand/irand
+                               segment-length))
          indices (f/+ indices
                       (f/* (range segment-count)
                            segment-length))
@@ -167,21 +191,21 @@
 ;; 4. Sumset (Bundle) Operation and Thinning
 ;; ------------
 ;;
-;; Sumset A and B
-;; Take the elementwise sum.
-;; The result vector `C` = `A` + `B` is similar to both.
+;; Sumset A and B:
+;; The elementwise sum of A and B.
+;; The result vector `C` = `A` + `B` is *similar to both*.
 ;; Because you can 'get out' both A and B and they are unorded this is a 'set'.
 ;;
 ;; This is also called `bundle`. As in bundling the information into a single representation.
 ;;
 ;; Thinning:
-;; To keep it sparse, we usually want to thin.
+;; ------------
+;; To keep it sparse, we usually want to thin after bundling.
 ;; (Although it is cool that we can sum multiple vectors without thinning.
-;; And permutation and bind also work on denser vectors).
+;; - permutation and bind also work with denser vectors
 ;;
 ;;
 
-;; bundle is easy
 (def bundle
   "Returns the elementwise sum of input the vectors.
   Output vector resembles all input vectors, unordered.
@@ -190,7 +214,7 @@
   f/+)
 
 (defn thin-pth-modulo
-  "Returns a new thinned vector of `a` where 1 non-zero bit per segment in `a` is left over.
+  "Returns a new thinned vector derived from `a` where 1 non-zero bit per segment in `a` is left over.
 
   Instead of picking a random non-zero bit from the available ones per segment (which is valid),
   here, the indices themselves provide the decision, making this a deterministic operation.
@@ -306,14 +330,15 @@
 
   (0.01 0.01 0.01 0.54)
 
-  Trust me, you'll get a toaster out of it
+  Trust me, you'll get the toaster out of it.
 
-  How many you can bundle before things water down is called the `capacitiy`.
+  How many you can bundle before things water down can be labeled `capacitiy` of the bind.
+  You don't need to worry if the kvp are less than 20.
+
   [blog]
 
 
-
-  - preserves distance
+  This preserves distance:
 
 (let [a (->hv) b (->hv) ab (thin (bundle a b)) c (->hv)]
   (= (similarity a ab)
@@ -322,7 +347,7 @@
   => true
 
 
-  - left distrubutes over addition
+  This left distrubutes over addition:
 
 (let [a (->hv) b (->hv) c (->hv)]
   (=
@@ -331,14 +356,14 @@
 
   => true
 
-  This is not a self-inverse bind. To unbind, you use [[unbind]].
+  This is *not* a self-inverse bind. To unbind, you use [[unbind]].
 
-  Implementation:
+  Implementation: A Segment wise shift
   ---------------
 
    +----------+----------+----------+--------------+
-   | _ _ 1 _  |          |          |              |  A
-   +-----^----+----------+----------+--------------+
+   | _ _ 1 _  | 1        |  1       |              |  A
+   +-----+----+----------+----------+--------------+
          |
          |
         idx   1. obtain idx from each segment-j in A
@@ -354,25 +379,30 @@
    +----------+----------+----------+--------------+
      segment-1, ... segment-j
 
-     shift
-     ---->
-      idx * alpha
+    |     ^
+    |     |
+    |     |
+    +-----+
+     shift by idx * `alpha`
+
+          |
+          |
+          v
 
     [ _ _ _ 1 ] ,
 
 
               2. shift the segment-j of B by idx * alpha circularly
                  alpha is 1 by default (so you move to the right)
-                 alpha = -1 does the reverse shift and unbinds.
+                 alpha = -1 does the reverse shift, it unbinds.
 
 
-     [ shift,   shift,    shift,  ...  ]
+     [ shifted-1,   shifted-2,  shifted-3,    ...  ]    C
 
-     -> call it C
 
   This is a segment-wise `permutation` of B.
 
-  See [[unbind]]
+  See [[unbind]].
   "
   ([a b] (bind a b 1))
   ([a b alpha] (bind a b alpha default-opts))
@@ -427,128 +457,60 @@
   [a b] (bind b a -1))
 
 
-(let [color (->hv)
-      red (->hv)
-      kvp (bind color red)]
-  (similarity (unbind kvp color) red))
-1.0
+(comment
+  ;; Bind/Unbind commutative/associative?
 
 
+  ;; Don't entirely get the paper:
 
-(let [color (->hv)
-      red (->hv)]
-  [(similarity (unbind (bind red color) color) red)
-   (similarity (unbind (bind color red) color) red)])
-
-
-
-
-
-
+  ;; If both vectors are maximally
+  ;; sparse (number of ones in both vectors is S), the binding
+  ;; operation commutes, i.e., A ⊗ B = B ⊗ A. Interestingly, if
+  ;; we set α to −1, the arithmetic properties of the binding and
+  ;; unbinding operation are interchanged: binding with α = −1
+  ;; does not commute (subtraction of indices does not commute),
+  ;; whereas unbinding with α = −1 associates
 
 
+  ;; this is commutative, correct:
 
+  (let [a (->hv) b (->hv)]
+    (similarity
+     (bind a b)
+     (bind b a)))
 
+  1.0
 
-;; Don't entirely get the paper:
+  ;; ... and also associative?
 
-;; If both vectors are maximally
-;; sparse (number of ones in both vectors is S), the binding
-;; operation commutes, i.e., A ⊗ B = B ⊗ A. Interestingly, if
-;; we set α to −1, the arithmetic properties of the binding and
-;; unbinding operation are interchanged: binding with α = −1
-;; does not commute (subtraction of indices does not commute),
-;; whereas unbinding with α = −1 associates
+  (let [a (->hv)
+        b (->hv)
+        c (->hv)
+        d (->hv)]
+    (similarity
+     (bind (bind (bind a b) c) d)
+     (bind (bind a (bind b c)) d)))
 
+  1.0
 
-;; this is commutative, correct:
+  ;; but for unbind neither are true.
+  ;; Some misunderstanding somewhere
 
-(let [a (->hv) b (->hv)]
-  (similarity
-   (bind a b)
-   (bind b a)))
+  ;; substraction doesn't commute, correct I guess:
 
-1.0
+  (let [a (->hv)
+        b (->hv)]
+    (similarity
+     (bind a b -1)
+     (bind b a -1)))
+  0.01
 
-;; ... and also associative?
+  ;; but it is not associative:
 
-(let [a (->hv)
-      b (->hv)
-      c (->hv)
-      d (->hv)]
-  (similarity
-   (bind (bind (bind a b) c) d)
-   (bind (bind a (bind b c)) d)))
-
-1.0
-
-;; but for unbind neither are true.
-;; Some misunderstanding somewhere
-
-
-
-;; substraction doesn't commute, correct I guess:
-
-(let [a (->hv)
-      b (->hv)]
-  (similarity
-   (bind a b -1)
-   (bind b a -1)))
-0.01
-
-;; but it is not associative:
-
-(let [a (->hv)
-      b (->hv)
-      c (->hv)]
-  (similarity
-   (bind (bind a b -1) c -1)
-   (bind a (bind b c -1) -1)))
-
-(let [a [0 0 1]
-      b [1 0 0]
-      opts
-      {:bsdc-seg/segment-length 3
-       :bsdc-seg/segment-count 1
-       :bsdc-seg/N 3
-       }]
-
-  ;; (bind (bind a b -1 ) c -1)
-  [
-   (bind a b 1 opts)
-   (bind a b -1 opts)])
-
-;; (let [a (->hv)
-;;       b (->hv)
-;;       ab (thin (bundle a b))
-;;       banana (->hv)
-;;       apple (->hv)
-;;       fruit (thin (bundle banana apple))
-;;       mapping (bind ab fruit)]
-;;   [(similarity a ab)
-;;    ;; preserves distance
-;;    (similarity (bind mapping a) (bind mapping ab))
-;;    (similarity (unbind mapping fruit) a)
-;;    (similarity (unbind mapping fruit) b)
-;;    ;; meaningless
-;;    (similarity (unbind mapping fruit) banana)
-;;    ;; 👌
-;;    (similarity (unbind mapping ab) banana)])
-
-
-
-
-
-(let [a (->hv) b (->hv) c (->hv)]
-  (=
-   (bind a (f/+ b c))
-   (f/+ (bind a b) (bind a c))))
-
-
-
-
-(let [a (->hv) b (->hv) ab (thin (bundle a b)) c (->hv)]
-  (= (similarity a ab)
-     (similarity (bind a c) (bind ab c))))
-
-true
+  (let [a (->hv)
+        b (->hv)
+        c (->hv)]
+    (similarity
+     (bind (bind a b -1) c -1)
+     (bind a (bind b c -1) -1)))
+  )

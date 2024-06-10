@@ -1,3 +1,7 @@
+;;
+;; These are just notes atm
+;;
+
 (ns sequence-perocessor
   (:require
    [bennischwerdtner.hd.binary-sparse-segmented :as
@@ -273,6 +277,8 @@
    []
    (range)))
 
+;; -> this doesn't work so well :P
+
 
 
 
@@ -393,9 +399,6 @@
 
 
 
-
-
-
 (defn clj->vsa
   [obj]
   (cond (map? obj) (->record obj)
@@ -403,13 +406,7 @@
         :else (->prototype obj)))
 
 
-
-
-(defn )
-
-(defn instruction? [h]
-
-  )
+(defn instruction? [h])
 
 (defn sp-eval [h]
   (cond

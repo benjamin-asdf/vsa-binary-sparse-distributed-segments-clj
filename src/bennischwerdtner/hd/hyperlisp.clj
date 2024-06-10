@@ -1,3 +1,6 @@
+;; -------------------------
+;; Just notes
+;; -------------------------
 (ns bennischwerdtner.hd.hyperlisp
   (:refer-clojure
    :exclude
@@ -60,19 +63,14 @@
 (defn lambda? [o]
   (satisfies? IHyperLambda o))
 
-
 ;;
-(defprotocol IHyperEnv
-
-  )
+(defprotocol IHyperEnv)
 
 (def ^:dynamic *env*)
 
 
 ;;
 (defn intern [val])
-
-
 
 
 ;; eval with treshold

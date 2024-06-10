@@ -15,7 +15,7 @@ Blog post:
 
 Following the paper [[https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_with_Sparse_Vectors][High-Dimensional Computing with Sparse Vectors]] [Laiho,Poikonen,Kanerva,Lehtonen 2020].
 
-[[file:src/bennischwerdtner/hd/binary_sparse_segmented.clj][binary_sparse_segmented.clj]] contains an implementation of 'Binary Sparse Distributed Representation with segments' (naming from [Schlegel et.al. 2021][fn:1]).
+[[file:src/bennischwerdtner/hd/binary_sparse_segmented.clj][binary_sparse_segmented.clj]] contains an implementation of 'Binary Sparse Distributed Representation with segments' (naming from [[*2]])
 
 ** Examples
 

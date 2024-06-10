@@ -1,4 +1,4 @@
-High dimensional computing is a great way to explore neuromorphic, neurosymbolic computing paradigms.
+High dimensional computing is a great approach to neuromorphic, neurosymbolic computing.
 
 
 * Sparse Binary Vectors
@@ -65,7 +65,6 @@ Dynamic sparsity mechanisms could perhaps represent different /levels of detail/
 Laiho et.al. 2015
 High-Dimensional Computing with Sparse Vectors
 https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_with_Sparse_Vectors
-
 
 ** 2
 

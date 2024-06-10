@@ -26,12 +26,6 @@
 ;; are the hypervectors (HDV).
 ;; These are vectors with large number dimensions (100++).
 ;;
-;; More: blog, lit
-;;
-;; Some variations exist with slightly different properties.
-;;
-;;
-
 
 ;;
 ;; Binary Segmented Sparse
@@ -519,5 +513,4 @@
         c (->hv)]
     (similarity
      (bind (bind a b -1) c -1)
-     (bind a (bind b c -1) -1)))
-  )
+     (bind a (bind b c -1) -1))))

@@ -8,7 +8,13 @@ https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_wi
 
 
 * 2
+
 Schlegel et.al. 2021  A comparison of Vector Symbolic Architectures
 
 http://www.arxiv.org/abs/2001.11797
 arXiv:2001.11797
+
+* 3
+
+Pentti Kanerva. Hyperdimensional computing: An introduction to computing in distributed representation with
+high-dimensional random vectors. Cognitive Computation, 1(2):139–159, 2009. doi:10.1007/s12559-009-9009-8.

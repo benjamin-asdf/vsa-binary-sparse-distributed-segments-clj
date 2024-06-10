@@ -506,7 +506,7 @@
      (bind b a -1)))
   0.01
 
-  ;; but it is not associative:
+  ;; but it is not associative: 👈
 
   (let [a (->hv)
         b (->hv)

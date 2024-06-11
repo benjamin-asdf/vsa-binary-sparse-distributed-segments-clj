@@ -261,3 +261,85 @@
     (hd/unbind
      r
      (->prototype (cleanup-lookup-value r))))))
+
+
+;; ===========================================================
+
+
+
+(let [a (hd/->hv)
+      noise (apply f/+ (repeatedly 20 hd/->hv))
+      a' (hd/thin (f/+ a noise))]
+  (hd/similarity a a'))
+
+(apply
+ max
+ (let
+     [a (hd/->hv)]
+     (for [n (range 50000)]
+       (hd/similarity a (hd/->hv)))))
+
+
+
+(defn predicate-branches [predicate-value]
+  (cleanup-lookup-verbose predicate-value)
+  )
+
+(defmacro hyper-if
+  [predicate consequence alternative]
+  `(let
+       [condition ~condition]
+       (if condition ~consequence ~alternative)))
+
+(some odd? [1 2 3 4 5 6 7 8 9 10])
+
+(let [fluid (->prototype :a)
+      water (->prototype :b)])
+
+(let [fluid (->prototype :a)
+      water (->prototype :b)
+      lava (->prototype :c)
+      water (hd/thin (hd/bundle fluid water))
+      lava (hd/thin (hd/bundle fluid lava))
+      fire (->prototype :d)
+      lava (hd/thin (hd/bundle lava fire))]
+  [
+   (hd/similarity fluid fire)
+   (hd/similarity fluid lava)
+   (hd/similarity fluid water)
+   (hd/similarity water lava)])
+
+
+
+(let [a (hd/->hv)
+      b (hd/->hv)
+      random-and-similar-to-both
+      (fn []
+        (let [c (hd/->hv)
+              c (hd/thin (hd/bundle a b c))]
+          c))
+      similar? (fn [similarity] (< 0.09 similarity))]
+  (hd/similarity (random-and-similar-to-both)
+                 (random-and-similar-to-both))
+  ;; [[:a :b (similar? (hd/similarity a b))]
+  ;;  [:a :random-c-min
+  ;;   ;; make a 100 random vectors, look at the min
+  ;;   ;; similarity
+  ;;   (similar?
+  ;;    (apply
+  ;;     min
+  ;;     (map (fn [_]
+  ;;            (hd/similarity a (random-and-similar-to-both)))
+  ;;          (range 100))))]
+  ;;  [:b :random-c-min
+  ;;   (similar?
+  ;;    (apply min
+  ;;           (map (fn [_]
+  ;;                  (hd/similarity b (random-and-similar-to-both)))
+  ;;                (range 100))))]]
+  )
+
+
+[[:a :b false]
+ [:a :random-c-min true]
+ [:b :random-c-min true]]

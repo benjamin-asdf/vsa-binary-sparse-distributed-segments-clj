@@ -91,13 +91,14 @@
   ([{:bsdc-seg/keys [segment-count segment-length N]}]
    (let [indices (repeatedly segment-count
                              #(fm.rand/irand
-                               segment-length))
+                                segment-length))
          indices (f/+ indices
                       (f/* (range segment-count)
                            segment-length))
          v (dtype/alloc-zeros :int8 N)]
      (doseq [i indices] (dtype/set-value! v i 1))
      (dtt/->tensor v))))
+
 
 (defn maximally-sparse?
   "Returns true if `a` is maximally sparse.
@@ -112,10 +113,9 @@
 ;; 2. Similarity
 ;; -------------------
 ;;
-;; For VSA, we need a similarity meassure of HDVs. Cosine is good for many architectures, but not
+;; For VSA, we need a similarity measure of HDVs. Cosine is good for many architectures, but not
 ;; for sparse binary.
-;; I take the overlap and normalize to 0 and 1. Seems to work.
-;;
+;; I take the overlap and normalize between 0 and 1. Seems to work.
 ;;
 ;;
 
@@ -141,6 +141,7 @@
 ;; 3. Permutation
 ;; -------------------
 ;;
+
 
 (defn permute-n
   "Returns a new vector where each segment of `a` is circularly by `n`."

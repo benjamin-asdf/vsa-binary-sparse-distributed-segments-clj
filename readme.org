@@ -55,6 +55,8 @@ The implementation succesfully represents the analogy-reasoning example from Kan
 
 *** Hyper-If
 
+[[file:./examples/hyper_if.clj]]
+
 #+begin_src clojure
 
     ;; Idea 1:

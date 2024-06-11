@@ -53,6 +53,14 @@ The implementation succesfully represents the analogy-reasoning example from Kan
 
 #+end_src
 
+*** 'prototype'
+
+Keys and values are interchangeable in VSA. We might as well call them /prototypes/. We might not need variables at all.
+As analogy, a child might learn the prototype 'mum', which is first used as a symbol for a single person.
+Later, 'mum' could augment, into a symbol representing the =role= mum.
+I.e. you use the mum prototype as key in records.
+
+
 *** Hyper-If
 
 [[file:./examples/hyper_if.clj]]
@@ -91,7 +99,15 @@ The implementation succesfully represents the analogy-reasoning example from Kan
 
   ;; => (:heads :tails)
 
-  #+end_src
+#+end_src
+
+We can envisage a programming paradigm that models something like a multiverse, where multiple things are true.
+(This is probably very close to /probabilistic programming/, I know little of that).
+
+
+Similarly, a =multi-symbol= could resolve to either a list of things, or to a thing representing the set of things.
+
+
 
 
 

@@ -63,6 +63,23 @@
      :bsdc-seg/segment-length (/ dimensions
                                  segment-count)}))
 
+
+(defn indices->hv
+  "Returns a segmented hypervector with `indices`
+  set to 1 for each segment.
+
+  "
+  ([indices] (indices->hv indices default-opts))
+  ([indices
+    {:bsdc-seg/keys [segment-count segment-length N]}]
+   (let [indices (f/+ indices
+                      (f/* (range segment-count)
+                           segment-length))
+         v (dtype/alloc-zeros :int8 N)]
+     (doseq [i indices] (dtype/set-value! v i 1))
+     (dtt/->tensor v))))
+
+
 (defn ->hv
   "
   Returns a fresh, random hypervector - the element of VSA.
@@ -89,15 +106,9 @@
   "
   ([] (->hv default-opts))
   ([{:bsdc-seg/keys [segment-count segment-length N]}]
-   (let [indices (repeatedly segment-count
-                             #(fm.rand/irand
-                                segment-length))
-         indices (f/+ indices
-                      (f/* (range segment-count)
-                           segment-length))
-         v (dtype/alloc-zeros :int8 N)]
-     (doseq [i indices] (dtype/set-value! v i 1))
-     (dtt/->tensor v))))
+   (indices->hv (repeatedly segment-count
+                            #(fm.rand/irand
+                              segment-length)))))
 
 
 (defn maximally-sparse?
@@ -458,6 +469,87 @@
   ;; I swap this here so the mapping is left
   [a b] (bind b a -1))
 
+(defn unit-vector
+  "
+  Returns the unit vector.
+
+  The unit vector is identity element for `bind`:
+
+  (let [a (->hv)]
+    (= a (bind (unit-vector) a)))
+  true
+
+  "
+  ([] (unit-vector default-opts))
+  ([{:bsdc-seg/keys [segment-count] :as opts}]
+   (indices->hv (repeatedly segment-count (constantly 0)) opts)))
+
+(defn inverse
+  "Returns the inverse of `a`.
+
+  This is cool, because it is an alternative way to `unbind`.
+  Thus, a query for `a` can be represented as
+
+  `(inverse a)`
+
+  and the consumer can use `bind` instead of `unbind`.
+
+  (let [a (->hv)
+            b (->hv)
+            a-inv (inverse a)
+            c (bind a b)]
+        (assert (= b (bind c a-inv))))
+
+  Binding yourself with your inverse results in the unit vector:
+
+  (let [a (->hv)]
+   (=
+     (unit-vector)
+      (bind a (inverse a))))
+  => true
+
+
+  Inverse is the inverse of itself:
+
+  (let [a (->hv)]
+    (= a (inverse (inverse a))))
+  => true
+
+
+  I didn't check how that works for non maximally sparse vectors.
+  "
+  ([a] (inverse a default-opts))
+  ([a
+    {:as opts
+     :bsdc-seg/keys [segment-count segment-length N]}]
+   (let [indices-a (-> a
+                       (dtt/reshape [segment-count
+                                     segment-length])
+                       (dtt/reduce-axis
+                        (fn [segment]
+                          (dtype-argops/index-of
+                           segment
+                           (f/reduce-max segment)))))]
+     (let [indices-c (map (fn [a]
+                            (mod (- segment-length a)
+                                 segment-length))
+                          indices-a)]
+       indices-c
+       (indices->hv indices-c opts)))))
+
+
+
+(comment
+  (let [a (->hv)] (= (unit-vector) (bind a (inverse a))))
+  true
+  (doseq [n (range 100)]
+    (let [a (->hv)
+          b (->hv)
+          a-inv (inverse a)
+          c (bind a b)]
+      (assert (= b (bind c a-inv)))))
+  nil)
+
 
 (comment
   ;; Bind/Unbind commutative/associative?
@@ -484,6 +576,31 @@
   1.0
 
   ;; ... and also associative?
+  ;;
+  ;; -------------------
+  ;; -> (makes sense for sparse vectors)
+  ;;
+  ;; Consider:
+  ;;
+  ;; https://paperswithcode.com/paper/cognitive-modeling-and-learning-with-sparse#code
+  ;; Zhonghao Yang 2023
+  ;; (his bind implementation assumes maximally sparse vectors)
+  ;;
+  ;; Then:
+  ;;
+  (let [segment-index-c (fn [segment-index] (mod
+                                             (+
+                                              (segment-idx a segment-index)
+                                              (segment-idx b segment-index))
+                                             segment-length))])
+
+  ;; for each segment you sum the two input vectors a and b indices, mod segment-length
+  ;;
+  ;; This is obviously commutative and associative
+  ;; -------------------
+
+
+
 
   (let [a (->hv)
         b (->hv)
@@ -515,3 +632,84 @@
     (similarity
      (bind (bind a b -1) c -1)
      (bind a (bind b c -1) -1))))
+
+
+
+
+(comment
+  ;; https://paperswithcode.com/paper/cognitive-modeling-and-learning-with-sparse#code
+  ;; Zhonghao Yang 2023
+
+  (defn bind2
+    [a b {:bsdc-seg/keys [segment-count segment-length N]}]
+    (let [indices-a (-> a
+                        (dtt/reshape [segment-count
+                                      segment-length])
+                        (dtt/reduce-axis
+                         (fn [segment]
+                           (dtype-argops/index-of
+                            segment
+                            (f/reduce-max segment)))))
+          indices-b (-> b
+                        (dtt/reshape [segment-count
+                                      segment-length])
+                        (dtt/reduce-axis
+                         (fn [segment]
+                           (dtype-argops/index-of
+                            segment
+                            (f/reduce-max segment)))))]
+      [indices-a indices-b]
+      (let [indices-c (map (fn [a b]
+                             (mod (+ a b) segment-length))
+                           indices-a
+                           indices-b)]
+        (indices->hv indices-c
+                     {:bsdc-seg/N N
+                      :bsdc-seg/segment-count segment-count
+                      :bsdc-seg/segment-length
+                      segment-length}))))
+
+
+  ;; our binds are the same for maximally sparse vectors
+
+  (doseq [n (range 100)]
+    (let [a (->hv)
+          b (->hv)
+          c1 (bind a b)
+          c2 (bind2 a b default-opts)]
+      (assert (= c1 c2))))
+  nil
+
+
+  (def a
+    (indices->hv
+     [0 0 0 0]
+     {:bsdc-seg/N 16
+      :bsdc-seg/segment-count 4
+      :bsdc-seg/segment-length 4}))
+
+  (def b
+    (indices->hv
+     [1 1 1 1]
+     {:bsdc-seg/N 16
+      :bsdc-seg/segment-count 4
+      :bsdc-seg/segment-length 4}))
+
+  (def b-inv (indices->hv [3 3 3 3] {:bsdc-seg/N 16 :bsdc-seg/segment-count 4 :bsdc-seg/segment-length 4}))
+
+  (let
+      [a (->hv) b (->hv) c (bind2 a b default-opts)]
+      (= c (bind a b)))
+
+  (=
+   (unit-vector {:bsdc-seg/N 16 :bsdc-seg/segment-count 4 :bsdc-seg/segment-length 4})
+   (bind2 b b-inv {:bsdc-seg/N 16 :bsdc-seg/segment-count 4 :bsdc-seg/segment-length 4}))
+
+  (let [a (->hv)
+        b (->hv)
+        a-inv (inverse a default-opts)
+        c (bind2 a b default-opts)]
+    [(= (unit-vector default-opts)
+        (bind2 a a-inv default-opts)) (= b (unbind c a))
+     (= b (bind2 c a-inv default-opts))])
+  [true true true])

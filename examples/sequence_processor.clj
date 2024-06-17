@@ -1,15 +1,68 @@
-
+;;
 ;; just experiments
+;;
 
 (ns sequence-perocessor
   (:require
-   [bennischwerdtner.hd.binary-sparse-segmented :as
-    hd]
+   [bennischwerdtner.hd.binary-sparse-segmented :as hd]
    [tech.v3.datatype :as dtype]
    [tech.v3.tensor :as dtt]
    [tech.v3.parallel.for :as pfor]
    [tech.v3.datatype.argops :as dtype-argops]
    [tech.v3.datatype.functional :as f]))
+
+;; quick content addressable memory
+(defprotocol ContentAddressableMemory
+  (lookup [this query-v])
+  (lookup* [this query-v])
+  (store [this v]))
+
+(defn cam-lookup
+  [m query-v]
+  (let [similarities
+          (into [] (pmap #(hd/similarity % query-v) m))]
+    (when (seq similarities)
+      (let [argmax (dtype-argops/argmax similarities)]
+        (when (<= 0.09 (similarities argmax)) (m argmax))))))
+
+(defn cam-lookup*
+  [m query-v]
+  (let [similarities
+          (into [] (pmap #(hd/similarity % query-v) m))]
+    (map m
+      (map first
+        (filter (comp #(< 0.09 %) second)
+          (map-indexed vector similarities))))))
+
+
+(defn cam-store [m v]
+  (assert (hd/hv? v))
+  (conj m v))
+
+;; there is literature on how to make this smarter,
+;; in particular in a `sparse distributed memory`, you don't grow the memory with every new item
+;;
+(defn ->cam
+  []
+  (let [m (atom [])]
+    (reify
+      ContentAddressableMemory
+      (lookup [this query-v] (cam-lookup @m query-v))
+      (lookup* [this query-v] (cam-lookup* @m query-v))
+      (store [this v] (swap! m cam-store v) this))))
+
+(def cam (->cam))
+
+(defn known [x]
+  (lookup cam x))
+
+(defn remember-soft
+  [x]
+  (when-not (known x) (store cam x))
+  x)
+
+(defn remember [x] (store cam x) x)
+
 
 ;; Make a quick book keeping implementation:
 
@@ -17,16 +70,24 @@
   ["🐂" "🐛" "🚌" "Ψ" "Ϟ" "🪓" "🌈"])
 
 (let [lut (atom {})]
-  ;; "encountering a symbol"
-  ;; since symbol and value are interchangeable in hdc (Kanerva 2009), why not simply call it `prototype`
+  ;; "encountering a symbol" since symbol and value are
+  ;; interchangeable in hdc (Kanerva 2009), why not
+  ;; simply call it `prototype`
   ;;
   (defn ->prototype
+    "This also stores the symbol in content addressable memeory.
+
+  [[known]] will return the cleaned up symbol.
+  "
     [sym]
     (or (@lut sym)
-        (let [v (hd/->hv) _ (swap! lut assoc sym v)]
+        (let [v (hd/->hv)
+              _ (swap! lut assoc sym v)]
+          ;; !
+          (remember-soft v)
           v)))
   (defn cleanup-lookup-verbose
-    ([query-v] (cleanup-lookup-verbose query-v 0.1))
+    ([query-v] (cleanup-lookup-verbose query-v 0.09))
     ([query-v threshold]
      (->> (map (fn [[k v]]
                  {:k k
@@ -54,20 +115,6 @@
     (for [[k v] kvps]
       (hd/bind k v)))))
 
-;; quick content addressable memory
-(defprotocol ContentAddressableMemory
-  (lookup [this query-v])
-  (store [this v]))
-
-(defn cam-lookup
-  [m query-v]
-  (let [similarities
-        (into []
-              (pmap #(hd/similarity % query-v) m))
-        argmax (dtype-argops/argmax similarities)]
-    (when (<= 0.1 (similarities argmax)) (m argmax))))
-
-(defn cam-store [m v] (conj m v))
 
 (comment
   (let [a (hd/->hv)
@@ -76,28 +123,6 @@
         cam [a b ab]]
     (= a (cam-lookup cam a))))
 
-;; there is literature on how to make this smarter,
-;; in particular in a `sparse distributed memory`, you don't grow the memory with every new item
-;;
-(defn ->cam
-  []
-  (let [m (atom [])]
-    (reify
-      ContentAddressableMemory
-      (lookup [this query-v] (cam-lookup @m query-v))
-      (store [this v] (swap! m cam-store v) this))))
-
-(def cam (->cam))
-
-(defn known [x]
-  (lookup cam x))
-
-(defn remember-soft [x]
-  (when-not
-      (known x)
-    (store cam x)))
-
-(defn remember [x] (store cam x) x)
 
 (comment
   (known (remember (->prototype :a)))
@@ -126,25 +151,45 @@
                             (hd/bind x (sequence-marker i)))
                           xs))))
 
+(defn h-seq? [exp]
+  (and
+   (hd/hv? exp)
+   (cleanup-cam (h-nth exp 0))))
+
 (defn clj->vsa
   [obj]
-  (cond (map? obj)
-        (->record (map (fn [[k v]] [(clj->vsa k)
-                                    (clj->vsa
-                                     v)])
-                       obj))
-        (vector? obj) (->sequence (map clj->vsa obj))
+  (cond (map? obj) (->record (map (fn [[k v]] [(clj->vsa k)
+                                               (clj->vsa
+                                                 v)])
+                               obj))
+        (or (list? obj) (vector? obj)) (->sequence
+                                         (map clj->vsa obj))
         (hd/hv? obj) obj
         :else (->prototype obj)))
 
 ;; theseq is basically a set where the keys correspond to indices
 
-(def theseq (->sequence
-             [(->prototype :a)
-              (->prototype :b)
-              (->prototype :c)]))
+
+;; retrieving is the same as with a record
+(defn h-nth [hsx idx]
+  (hd/unbind hsx (sequence-marker idx)))
+
+(defn cleanup-cam [x] (lookup cam x))
+
+(defn unroll
+  [hxs]
+  (take-while
+   identity
+   (map
+    cleanup-cam
+    (map #(h-nth hxs %) (range)))))
 
 (comment
+
+  (def theseq (->sequence
+               [(->prototype :a)
+                (->prototype :b)
+                (->prototype :c)]))
 
   (map
    cleanup-lookup-value
@@ -179,29 +224,7 @@
      [:a
       false
       [+ 10 20]
-      [+ 10 20]]) 2))
-  )
-
-
-;; retrieving is the same as with a record
-
-(comment
-  (cleanup-lookup-value
-   (hd/unbind theseq (sequence-marker 0)))
-  :a)
-
-(defn h-nth [hsx idx]
-  (hd/unbind hsx (sequence-marker idx)))
-
-(defn cleanup-cam [x] (lookup cam x))
-
-(defn unroll
-  [hxs]
-  (take-while
-   identity
-   (map
-    cleanup-cam
-    (map #(h-nth hxs %) (range)))))
+      [+ 10 20]]) 2)))
 
 (defn unroll-tree
   [hsx]
@@ -212,36 +235,18 @@
        (unroll hsx)))
 
 (comment
-  (into [] (map cleanup-lookup-value (unroll theseq)))
-  [:a :b :c])
-
-
-(h-eval (clj->vsa [+ 1 2 3]))
-;; => (6)
-
-(h-eval (clj->vsa [(mix - +) 1 2 3]))
-;; => (6 -4)
-
-
-(h-eval (clj->vsa [+ 1 2 (mix 3 30)]))
-;; => (6, 33)
+  (h-eval (clj->vsa [+ 1 2 3]))
+  ;; => (6)
+  (h-eval (clj->vsa [(mix - +) 1 2 3]))
+  ;; => (6 -4)
+  (h-eval (clj->vsa [+ 1 2 (mix 3 30)]))
+  ;; => (6, 33)
+)
 
 
 ;;
 ;; in hyperlisp, expressions are hypervectors
 ;;
-
-(defn self-evaluating? [exp]
-  (hd/hv? exp))
-
-(defn h-seq? [exp]
-  (and
-   (hd/hv? exp)
-   (cleanup-cam (h-nth exp 0))))
-
-(comment
-  (h-seq? theseq)
-  (h-seq? (hd/->hv)))
 
 (declare h-apply)
 
@@ -300,8 +305,6 @@
          (h-eval (if-alternative exp)))))))
 
 
-
-
 (comment
   (cleanup*
    (eval-if (clj->vsa ['if (mix true false) :heads :tails])))
@@ -327,9 +330,7 @@
                     (clj->vsa :heads)])))
 
   (cleanup-lookup-verbose
-   (if-alternative (clj->vsa ['if (mix 10 false) :heads :tails])))
-
-  )
+   (if-alternative (clj->vsa ['if (mix 10 false) :heads :tails]))))
 
 (defn h-eval
   [exp]
@@ -358,112 +359,306 @@
 (defn h-apply
   [op arguments]
   ;; (hd/thin)
-  (apply
-   hd/bundle
-   (for [op (branches op)]
-     (clj->vsa
-      (if (primitive-op? op)
-        ;; (+ 1 2 3)
-        (apply op (map cleanup-lookup-value arguments))
-        ;; compound
-        nil)))))
+  (apply hd/bundle
+    (for [op (branches op)]
+      (clj->vsa
+       (if (primitive-op? op)
+         ;; (+ 1 2 3)
+         (apply
+          op
+          (map cleanup-lookup-value arguments))
+         ;; what would a hyper lambda be
+         ;; doing?
+         #_(defprotocol IHyperLambda
+             (body [this])
+             (environment [this]))
+         nil)))))
+
+(comment
+
+  (h-apply (->prototype +)
+           (unroll (clj->vsa (into [] (range 3)))))
+  (cleanup-lookup-value
+   (h-apply (->prototype +)
+            (unroll (clj->vsa (into [] (range 3))))))
+  (cleanup-lookup-value
+   (h-apply (->prototype +)
+            (unroll (clj->vsa (into [] (range 3))))))
+  3
+  (cleanup* (h-apply (mix + -) (unroll (clj->vsa [1 2 3]))))
+  ;; (-4 6)
+  (cleanup* (h-eval (mix 10 20)))
+  (cleanup* (h-eval (clj->vsa ['if (mix 10 20) 30
+                               :bananas])))
+  (cleanup* (h-eval (clj->vsa ['if (mix 10 false) 30 :bananas])))
+  ;; (:bananas 30)
+
+  )
 
 
-(h-apply
- (->prototype +)
- (unroll
-  (clj->vsa (into [] (range 3)))))
-
-
-(cleanup-lookup-value
- (h-apply (->prototype +)
-          (unroll (clj->vsa (into [] (range 3))))))
-
-
-(cleanup-lookup-value
- (h-apply
-  (->prototype +)
-  (unroll (clj->vsa (into [] (range 3))))))
-
-3
-
-(cleanup* (h-apply (mix + -) (unroll (clj->vsa [1 2 3]))))
-;; (-4 6)
-
-
-(cleanup* (h-eval (mix 10 20)))
-
-
-(cleanup*
- (h-eval (clj->vsa ['if (mix 10 20) 30 :bananas])))
-
-(cleanup*
- (h-eval (clj->vsa ['if (mix 10 false) 30 :bananas])))
-
-(def exp (clj->vsa ['if (mix 10 20) 30 :bananas]))
-
-(cleanup*
- (h-eval (clj->vsa ['if (mix 10 false) 30 :bananas])))
-
-(cleanup*
- (eval-if (clj->vsa ['if (mix 10 false) 30 :bananas])))
-
-
-
-(cleanup*
- (hd/bundle
-  (clj->vsa :bananas)
-  (hd/->hv)))
-
-
-(def theexp
-  (clj->vsa
-   ['if true [+ 10 20] [+ 20 5]]))
-
-(h-seq? (h-nth theexp 2))
-
-(cleanup* (h-nth theexp 0))
-
-(cleanup* (h-nth theexp 1))
-(h-seq? (h-nth theexp 2))
-(h-eval (h-nth theexp 2))
-(known (h-nth (h-nth theexp 2) 0))
-
-(cleanup* (h-eval theexp))
-
-(cleanup* (h-eval (clj->vsa [+ 20 5])))
-(25)
-
-(cleanup*
- (h-eval (clj->vsa [(fn [a b]
-                      (+ (inc a) b)) 20 5])))
-(26)
-
-(cleanup*
- (h-eval (clj->vsa [
-                    (mix
-                     (fn [a b] (+ (inc a) b))
-                     (fn [a b] (+ a a)))
-                    20 5])))
-(40 26)
-
-(def f1 (fn [a b] (+ (inc a) b)))
-(def f2 (fn [a b] (+ a a)))
-
-(hd/similarity (mix f1 f2) (->prototype f1))
-
-(hd/similarity
- (clj->vsa [:a :b :c])
- (clj->vsa [:a :b :c]))
-
-(hd/similarity
- (clj->vsa ['if :b :c])
- (clj->vsa [:a :b :c]))
-
-(let [a (clj->vsa ['if :b :c])
-      b (clj->vsa [:x :y :z])]
+(comment
+  (cleanup* (h-eval (clj->vsa [+ 20 5])))
+  (25)
   (cleanup*
-   (hd/bind a (hd/inverse (sequence-marker 0)))))
+   (h-eval (clj->vsa [(fn [a b]
+                        (+ (inc a) b)) 20 5])))
+  (26)
 
-(let [container-lava (clj->vsa {:inside :lava})]
-  (hd/unbind (->prototype)))
+
+  (cleanup*
+   (h-eval (clj->vsa [(mix
+                       (fn [a b] (+ (inc a) b))
+                       (fn [a b] (+ a a)))
+                      20 5])))
+  (40 26)
+
+
+  (def f1 (fn [a b] (+ (inc a) b)))
+  (def f2 (fn [a b] (+ a a)))
+
+  (hd/similarity (mix f1 f2) (->prototype f1))
+
+  (hd/similarity
+   (clj->vsa [:a :b :c])
+   (clj->vsa [:a :b :c]))
+
+  ;; this code is similar...
+
+  (hd/similarity
+   (clj->vsa ['if :b :c])
+   (clj->vsa [:a :b :c]))
+
+  (let [a (clj->vsa ['if :b :c])
+        b (clj->vsa [:x :y :z])]
+    (cleanup*
+     (hd/bind a (hd/inverse (sequence-marker 0))))))
+
+
+
+#_(def pour
+  (λ [{:keys [inside]} other-container]
+     (substitue inside other-container)))
+
+
+;; dirty pour
+
+(def pour1
+  (fn [container1 container2]
+    (hd/thin
+     (hd/bundle
+      container2
+      (hd/bind
+       (clj->vsa :inside)
+       (hd/unbind container1 (clj->vsa :inside)))))))
+
+
+(let [my-lava-bucket (pour1 (clj->vsa {:inside :lava})
+                            (clj->vsa {:bucket? true
+                                       :inside :empty}))]
+  {:bucket? (cleanup* (hd/unbind my-lava-bucket
+                                 (clj->vsa :bucket?)))
+   :inside (cleanup* (hd/unbind my-lava-bucket
+                                (clj->vsa :inside)))})
+
+;; => {:bucket? (true) :inside (:lava :empty)}
+
+;; substitution pour
+(def pour2
+  (fn [container1 container2]
+    (let [container2-inside
+          (known
+           (hd/unbind container2
+                      (clj->vsa :inside)))]
+      (hd/thin (hd/bundle
+                ;; turns out you can dissoc from a sumset by substracting with the kvp
+                ;; You might want to do this with cleaned up vecs, or decide some messy ness is good.
+                ;;
+                (f/- container2
+                     (hd/bind (clj->vsa :inside)
+                              container2-inside))
+                (hd/bind (clj->vsa :inside)
+                         (hd/unbind
+                          container1
+                          (clj->vsa
+                           :inside))))))))
+
+
+(let [my-lava-bucket (pour2 (clj->vsa {:inside :lava})
+                            (clj->vsa {:bucket? true
+                                       :inside :empty}))]
+  {:bucket? (cleanup* (hd/unbind my-lava-bucket (clj->vsa :bucket?)))
+   :inside (cleanup-lookup-verbose (hd/unbind my-lava-bucket
+                                              (clj->vsa :inside)))})
+
+
+
+
+#_{:bucket? (true)
+   :inside ({:k :lava
+             :similarity 0.76
+             :v #tech.v3.tensor<int8> [10000]
+             [0 0 0 ... 0 0 0]})}
+
+
+;; that's a bucket with both lava and water
+(let [lava-bucket (clj->vsa {:bucket? true :inside :lava})
+      water-bucket (clj->vsa {:bucket? true :inside :water})
+      super-bucket (hd/thin (hd/bundle lava-bucket
+                                       water-bucket))]
+  {:bucket? (cleanup* (hd/unbind super-bucket
+                                 (clj->vsa :bucket?)))
+   :inside (cleanup* (hd/unbind super-bucket
+                                (clj->vsa :inside)))})
+
+
+;; {:bucket? (true), :inside (:lava :water)}
+
+
+;; dirty subst
+(def pour3
+  (fn [container1 container2]
+    (let [container2-inside (hd/unbind container2
+                                       (clj->vsa :inside))]
+      (hd/thin (hd/bundle (f/- container2
+                               (hd/bind (clj->vsa :inside)
+                                        container2-inside))
+                          (hd/bind (clj->vsa :inside)
+                                   (hd/unbind
+                                    container1
+                                    (clj->vsa
+                                     :inside))))))))
+
+(let [lava-bucket (clj->vsa {:bucket? true :inside :lava})
+      water-bucket (clj->vsa {:bucket? true :inside :water})
+      super-bucket (hd/thin (hd/bundle lava-bucket
+                                       water-bucket))
+      super-bucket
+      (pour3 lava-bucket super-bucket)]
+
+  {:bucket? (cleanup* (hd/unbind super-bucket
+                                 (clj->vsa :bucket?)))
+   :inside (cleanup* (hd/unbind super-bucket
+                                (clj->vsa :inside)))})
+
+;; {:bucket? (true), :inside (:lava)}
+
+(def inside (fn [a] (hd/unbind a (clj->vsa :inside))))
+
+;; just an idea
+
+(defn fulfills-role? [filler role]
+  (known
+   (hd/bind role (hd/permute filler))))
+
+(defn assign-role [filler role]
+  (remember-soft (hd/bind role (hd/permute filler))))
+
+(def spread
+  (fn [bread-like butter-like]
+    (if-not (fulfills-role? butter-like (clj->vsa :butter))
+      ;; 'nonsense'
+      (hd/->hv)
+      ;; that's just a conj
+      (hd/thin (hd/bundle bread-like
+                          (hd/bind (clj->vsa :butter)
+                                   butter-like))))))
+
+
+;; it's vegan butter btw
+(let [butter-prototype (clj->vsa :butter)
+      _ (assign-role (clj->vsa :nectar) (clj->vsa :butter))
+      _ (assign-role (clj->vsa :lava) (clj->vsa :butter))]
+  (cleanup*
+   (hd/unbind
+    (spread
+     (clj->vsa {:bread? true})
+     (clj->vsa :nectar))
+    (clj->vsa :butter))))
+;; (:nectar)
+
+(let [butter-prototype (clj->vsa :butter)
+      _ (assign-role (clj->vsa :nectar) (clj->vsa :butter))
+      _ (assign-role (clj->vsa :lava) (clj->vsa :butter))]
+  (cleanup*
+   (hd/unbind
+    (spread
+     (clj->vsa {:bread? true})
+     (clj->vsa :rocks))
+    (clj->vsa :butter))))
+;; ()
+
+
+(let [butter-prototype (clj->vsa :butter)
+      _ (assign-role (clj->vsa :nectar) (clj->vsa :butter))
+      _ (assign-role (clj->vsa :lava) (clj->vsa :butter))]
+  (cleanup*
+   (hd/unbind
+    (spread
+     (clj->vsa {:bread? true})
+     (mix :nectar :lava))
+    (clj->vsa :butter))))
+
+;; the superposition of nectar and lava happen to be butter-like
+;; (because it finds one of them to fulfill the role)
+
+;; (:lava :nectar)
+
+(let [butter-prototype (clj->vsa :butter)
+      _ (assign-role (clj->vsa :nectar) (clj->vsa :butter))
+      _ (assign-role (clj->vsa :lava) (clj->vsa :butter))]
+  (cleanup*
+   (hd/unbind
+    (spread
+     (clj->vsa {:bread? true})
+     (mix :nectar :rocks))
+    (clj->vsa :butter))))
+
+;; ... rocks nectar would also work
+;; (:rocks :nectar)
+;;
+;; now I imagine nectar with little rocks on the bread.
+;; it's crunchy
+;;
+;;
+
+;; ... unless maybe you select whatever fits the butter role out of the superposition?
+;; (but I leave it)
+
+
+
+(let [butter-prototype (clj->vsa :butter)
+      _ (assign-role (clj->vsa :nectar) (clj->vsa :butter))
+      _ (assign-role (clj->vsa :lava) (clj->vsa :butter))]
+
+  ;; (cleanup*
+  ;;  (hd/unbind
+  ;;   (spread
+  ;;    (clj->vsa {:bread? true})
+  ;;    (mix :nectar :rocks))
+  ;;   (clj->vsa :butter)))
+
+
+  (map
+   cleanup*
+   (extract-with-role
+    (mix :nectar :rocks)
+    (clj->vsa :butter))))
+
+
+
+(def spread2
+  (fn [bread-like butter-like]
+
+
+    (if-not (fulfills-role? butter-like (clj->vsa :butter))
+      ;; 'nonsense'
+      (hd/->hv)
+      ;; that's just a conj
+      (hd/thin (hd/bundle bread-like
+                          (hd/bind (clj->vsa :butter)
+                                   butter-like))))))
+
+
+
+;; lava and water are not merely associated
+;; perhaps they should be *the same*, given the right context

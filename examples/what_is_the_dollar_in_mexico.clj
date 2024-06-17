@@ -86,14 +86,14 @@
       {:capital 'mxc :currency 'peso :name 'mex}
       usa-record
       {:capital 'wdc :currency 'dollar :name 'usa}
-      mapping (bind usa-record mexico-record)]
+      mapping (h/bind usa-record mexico-record)]
   (bind mapping 'dollar)
   ;; -> peso
   )
 
 ;; You can store the entire db in 'mapping', and query it.
 ;;
-;; But since the bind and unbind here aren't inverses, we need to unbind from the USA record
+;; But since the h/bind and unbind here aren't inverses, we need to unbind from the USA record
 ;;
 
 ;; -----------------------------
@@ -109,3 +109,45 @@
 ;; High dimensional computing is structured, yet fuzzy in cool ways.
 ;; The hyper vectors are a great way to have fun with a computer.
 ;;
+
+
+;; what is the role of peso in mexico?
+
+(cleanup-lookup-value (h/unbind mexico-record (symbol->hv 'peso)))
+:currency
+
+
+;; What in mexico-record is similar to the 'usa' of usa
+
+(cleanup-lookup-value
+ (h/unbind
+  (h/bind (symbol->hv 'usa) mexico-record)
+  usa-record))
+
+;; => mex
+
+;;
+
+
+;;
+;; Knowledge transfer without decoupling first Zhonghao Yang 2023
+;;
+;; I don't get what this one is for
+;;
+
+(let
+    [us (h/bind mexico-record
+                (h/bundle (h/unbind usa-record
+                                    mexico-record)
+                          (h/unbind (symbol->hv 'wdc)
+                                    (symbol->hv 'mxc))
+                          (h/unbind (symbol->hv 'dollar)
+                                    (symbol->hv 'peso))))]
+
+    [(cleanup-lookup-value (h/unbind us
+                                     (symbol->hv :capital)))
+     (cleanup-lookup-value (h/unbind us
+                                     (symbol->hv :currency)))
+     (cleanup-lookup-value (h/unbind us
+                                     (symbol->hv :name)))])
+;; => [wdc dollar usa]

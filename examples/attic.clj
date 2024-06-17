@@ -639,3 +639,76 @@
 
 
     ))
+
+
+
+;; not like this
+(comment
+
+  ;; replace lava for water in a container record
+  (let [container-lava
+        (clj->vsa {:inside :lava :kind :bucket})
+        water (clj->vsa :water)
+        container-water
+        (hd/bundle
+         container-lava
+         (hd/bind
+          (hd/unbind container-lava (->prototype :lava))
+          water))]
+    [(cleanup*
+      (hd/bind container-water
+               (hd/inverse (->prototype :inside))))
+     (cleanup*
+      (hd/bind container-water
+               (hd/inverse (->prototype :kind))))])
+
+
+  ;; representing substitution
+
+  (let [container-lava
+        (clj->vsa {:inside :lava :kind :bucket})
+        water (clj->vsa :water)
+
+        ;; substitute :water with whatever :lava is
+
+        ;; => :inside
+        the-variable (hd/unbind container-lava (clj->vsa :lava))
+
+        ;; [:inside :water]
+        new-pair (hd/bind the-variable water)
+
+        substitution
+        (hd/bind (clj->vsa :lava) container-lava)]
+
+    (cleanup*
+     (hd/unbind
+      (hd/bind (clj->vsa :lava) container-lava)
+      container-lava)))
+
+
+  (let [container-lava
+        (clj->vsa {:inside :lava :kind :bucket})
+        water (clj->vsa :water)
+
+        ;; substitute :water with whatever :lava is
+
+        ;; => :inside
+        the-variable (hd/unbind container-lava (clj->vsa :lava))
+
+        ;; [:inside :water]
+        new-pair (hd/bind the-variable water)
+
+        substitution
+        (hd/bind (clj->vsa :lava) container-lava)]
+
+    (cleanup*
+     (hd/unbind
+      (hd/bind (clj->vsa :lava) container-lava)
+      container-lava))
+
+    (cleanup*
+     (f/-
+      container-lava
+
+      ;; :lava
+      (hd/unbind container-lava (clj->vsa :inside))))))

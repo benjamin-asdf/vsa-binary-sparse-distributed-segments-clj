@@ -75,4 +75,24 @@
 ;; all the bookeeping can go away ofc
 (map :k (cleanup-lookup-verbose (coin)))
 
+'(:heads :tails)
+
+
 ;; => (:heads :tails)
+
+(comment
+  (map :k
+       (cleanup-lookup-verbose
+        (hyper-if (hd/bundle (->prototype true)
+                             (->prototype false))
+                  (->prototype :heads)
+                  (->prototype :tails))))
+  (:heads :tails)
+  (cleanup-lookup-value (hyper-if (->prototype false)
+                                  (->prototype :heads)
+                                  (->prototype :tails)))
+  :tails
+  (hyper-if (hd/bundle (->prototype true)
+                       (->prototype false))
+            (->prototype :heads)
+            (->prototype :tails)))

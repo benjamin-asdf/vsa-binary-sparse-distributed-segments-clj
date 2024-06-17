@@ -7,7 +7,6 @@ Brain networks exhibit sparse pattern activity, which is the motivation to explo
 Sparse VSA architectures have been show to have competitive capacity and desirable HDC properties.[fn:1]
 At the same time, they have drastically reduced memory consumption.
 
-
 Blog post:
 
 
@@ -105,10 +104,20 @@ We can envisage a programming paradigm that models something like a multiverse, 
 
 Similarly, a =multi-symbol= could resolve to either a list of things, or to a thing representing the set of things.
 
+* Acknowledgements
+
+Thanks to [[https://github.com/gigasquid/vsa-clj][Carin Meier's intro to VSA]].
+
+Thanks to [[https://github.com/cnuernber/dtype-next][Chris Nuernberger's dtype next]] for high performance and linear algebra stuff at the clojure repl.
+
+* Notice
+
 
 * Future
 
-Dynamic sparsity mechanisms could perhaps represent different /levels of detail/, or parallel search processes[fn:2].
+- Dynamic sparsity mechanisms could perhaps represent different /levels of detail/, or parallel search processes[fn:2].
+
+- Implement a Sparse Distributed Memory, or figure out how to use an existing one
 
 * Literatrue
 
@@ -138,15 +147,7 @@ Talk versions (they are at most appetizers for the book chapter above):
 - https://youtu.be/1g5VEcnG6fI?si=lC9xAKZEL0hzKk3A
 - https://youtu.be/zUCoxhExe0o?si=KOQ5gkSHvI5DMOm3
 
-
-
 * Footnotes
-
-[fn:2]
-
-G. Palm Neural Assemblies: An Alternative Approach to Artificial Intelligence, (first edition: 1982, 2nd ed.: 2022)
-
-
 
 [fn:1]
 
@@ -154,3 +155,7 @@ Schlegel et.al. 2021  A comparison of Vector Symbolic Architectures
 
 http://www.arxiv.org/abs/2001.11797
 arXiv:2001.11797
+
+[fn:2]
+
+G. Palm Neural Assemblies: An Alternative Approach to Artificial Intelligence, (first edition: 1982, 2nd ed.: 2022)

@@ -59,14 +59,15 @@
 
    (cleanup-lookup-value result)])
 
+
 ;; tada!
 
 #_[{:k peso
-  :similarity 0.12
-  :v #tech.v3.tensor<int8> [10000]
-  [0 0 0 ... 0 0 0]}
- :result
- peso]
+    :similarity 0.12
+    :v #tech.v3.tensor<int8> [10000]
+    [0 0 0 ... 0 0 0]}
+   :result
+   peso]
 
 
 ;; ----------------------------------------------------------------------------------------

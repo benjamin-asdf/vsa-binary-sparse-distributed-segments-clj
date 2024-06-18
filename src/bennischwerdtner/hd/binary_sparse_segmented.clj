@@ -151,7 +151,14 @@
   "
   ([a b] (similarity a b default-opts))
   ([a b {:bsdc-seg/keys [segment-count]}]
-   (/ (f/sum (f/bit-and a b)) segment-count)))
+   (/
+    ;; (f/sum (f/bit-and a b))
+    (f/sum
+     (f/bit-and
+      (f/not-eq 0 a)
+      (f/not-eq 0 b)))
+    segment-count)))
+
 
 
 ;;

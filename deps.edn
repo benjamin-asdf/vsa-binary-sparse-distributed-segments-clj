@@ -1,8 +1,11 @@
-{:aliases {:test {:exec-args {}
-                  :exec-fn kaocha.runner/exec-fn
-                  :extra-deps {lambdaisland/kaocha
-                                 {:mvn/version
-                                    "1.91.1392"}}}}
+{:aliases
+ {:test
+  {:exec-args {}
+   :exec-fn kaocha.runner/exec-fn
+   :extra-deps {lambdaisland/kaocha
+                {:mvn/version
+                 "1.91.1392"}}}}
  :deps {cnuernber/dtype-next {:mvn/version "10.113"}
-        generateme/fastmath {:mvn/version "2.4.0"}}
+        generateme/fastmath {:mvn/version "2.4.0"}
+        org.clojure/math.combinatorics {:mvn/version "0.3.0"}}
  :paths ["src"]}

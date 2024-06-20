@@ -66,7 +66,7 @@
 
 (defn indices->hv
   "Returns a segmented hypervector with `indices`
-  set to 1 for each segment.
+  set to 1, segmentwise.
 
   "
   ([indices] (indices->hv indices default-opts))
@@ -78,6 +78,29 @@
          v (dtype/alloc-zeros :int8 N)]
      (doseq [i indices] (dtype/set-value! v i 1))
      (dtt/->tensor v))))
+
+(defn hv->indices
+  "Returns the segment representation of `hv`.
+
+  This is a list of indices for each segement.
+
+  example hv with N = 6, segment-length = 3
+
+
+  hv:            segment representation:
+  [ 0 1 0 , 1 0 0 ]  ( 1, 0 )
+
+  Assumes `a` is a maximally sparse vector.
+  "
+  ([a] (hv->indices a default-opts))
+  ([a {:bsdc-seg/keys [segment-count segment-length N]}]
+   (-> (dtt/reshape a [segment-count segment-length])
+       (dtt/reduce-axis (fn [segment] (dtype-argops/argmax segment))))))
+
+(comment
+  (hv->indices [0 1 0 1 0 0] {:bsdc-seg/N 6 :bsdc-seg/segment-count 2 :bsdc-seg/segment-length 3})
+  [1 0]
+  (hv->indices (->hv)))
 
 
 (defn ->hv
@@ -160,13 +183,11 @@
     segment-count)))
 
 
-
 ;;
 ;; -------------------
 ;; 3. Permutation
 ;; -------------------
 ;;
-
 
 (defn permute-n
   "Returns a new vector where each segment of `a` is circularly by `n`."
@@ -727,3 +748,70 @@
         (bind2 a a-inv default-opts)) (= b (unbind c a))
      (= b (bind2 c a-inv default-opts))])
   [true true true])
+
+
+
+;; I forget how this is called in the literature,
+;; but we can drop bits from the vector.
+;;
+;; Similar to bundleling with random noise,
+;; but making it thinner.
+;;
+;; 'thin' was taken, 'drop' is a clojure.core function
+;;
+;; 'weaken'?
+
+(defn weaken
+  "Returns a weakened vector by dropping a ratio of segments"
+  ([a drop-ratio] (weaken a drop-ratio default-opts))
+  ([a drop-ratio
+    {:bsdc-seg/keys [segment-count segment-length N]}]
+   ;; the indices decide how to drop,
+   ;; 'context dependent weakening'
+   ;;
+   ;; I think I can just make a cutoff at the segment
+   ;; indices. This might have some undesirable
+   ;; properties and you might be better off with using
+   ;; a random drop
+   ;;
+   ;; When comparing 2 random vectors, this obviously
+   ;; has the desired effect.
+   ;;
+   (let [segmentwise-cutoff (fm/floor (* drop-ratio
+                                         segment-length))
+         indices (hv->indices a)
+         v (dtype/alloc-zeros :int8 N)]
+     (doseq [idx-in-seg indices
+             i (f/+
+                (f/* (range segment-count) segment-length)
+                )]
+       (dtype/set-value! v i 1))
+     (dtt/->tensor v))))
+
+
+
+;; factor of 0 doesn't change anything
+(let [a (->hv)]
+  (= a (weaken a 0)))
+
+;; it is deterministic
+(let [a (->hv)]
+  (=
+   (weaken a 0.5)
+   (weaken a 0.5)))
+
+;; factor of 0 makes it a zero vector
+
+
+
+
+
+
+
+
+
+;;
+;; Bundle with ratio
+;;
+;; "more of a than b"
+;;

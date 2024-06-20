@@ -12,13 +12,13 @@
    [tech.v3.datatype.functional :as f]
    [clojure.math.combinatorics :as combo]))
 
-;; quick content addressable memory
-(defprotocol ContentAddressableMemory
+;; quick associative memory
+(defprotocol AssociativeAddressableMemory
   (lookup [this query-v])
   (lookup* [this query-v])
   (store [this v]))
 
-(defn cam-lookup
+(defn auto-associative-lookup
   [m query-v]
   (let [similarities
           (into [] (pmap #(hd/similarity % query-v) m))]
@@ -26,7 +26,7 @@
       (let [argmax (dtype-argops/argmax similarities)]
         (when (<= 0.09 (similarities argmax)) (m argmax))))))
 
-(defn cam-lookup*
+(defn auto-associative-lookup*
   [m query-v]
   (let [similarities
           (into [] (pmap #(hd/similarity % query-v) m))]
@@ -36,35 +36,35 @@
           (map-indexed vector similarities))))))
 
 
-(defn cam-store [m v]
+(defn auto-associative-store [m v]
   (assert (hd/hv? v))
   (conj m v))
 
 ;; there is literature on how to make this smarter,
 ;; in particular in a `sparse distributed memory`, you don't grow the memory with every new item
 ;;
-(defn ->cam
+(defn ->auto-a-memory
   []
   (let [m (atom [])]
     (reify
-      ContentAddressableMemory
-      (lookup [this query-v] (cam-lookup @m query-v))
-      (lookup* [this query-v] (cam-lookup* @m query-v))
-      (store [this v] (swap! m cam-store v) this))))
+      AssociativeAddressableMemory
+      (lookup [this query-v] (auto-associative-lookup @m query-v))
+      (lookup* [this query-v] (auto-associative-lookup* @m query-v))
+      (store [this v] (swap! m auto-associative-store v) this))))
 
-(def cam (->cam))
+(def auto-a-memory (->auto-a-memory))
 
 (defn known
   "Cleanup x with the cam."
   [x]
-  (lookup cam x))
+  (lookup auto-a-memory x))
 
 (defn remember-soft
   [x]
-  (when-not (known x) (store cam x))
+  (when-not (known x) (store auto-a-memory x))
   x)
 
-(defn remember [x] (store cam x) x)
+(defn remember [x] (store auto-a-memory x) x)
 
 
 ;; Make a quick book keeping implementation:
@@ -123,8 +123,8 @@
   (let [a (hd/->hv)
         b (hd/->hv)
         ab (hd/thin (hd/bundle a b))
-        cam [a b ab]]
-    (= a (cam-lookup cam a))))
+        auto-a-memory [a b ab]]
+    (= a (auto-associative-lookup auto-a-memory a))))
 
 
 (comment
@@ -132,11 +132,11 @@
   (known (hd/->hv)))
 
 (comment
-  (do (store cam (->prototype :a))
-      (store cam (->prototype :b))
-      (store cam (->prototype :c))
+  (do (store auto-a-memory (->prototype :a))
+      (store auto-a-memory (->prototype :b))
+      (store auto-a-memory (->prototype :c))
       (= (->prototype :a)
-         (lookup cam
+         (lookup auto-a-memory
                  (hd/thin (hd/bundle (->prototype :a)
                                      (hd/->hv)
                                      (hd/->hv)
@@ -190,6 +190,55 @@
            (unroll-tree x)
            x))
        (unroll hsx)))
+
+
+;;
+;; A - Ambiguity primitives
+;;
+;;
+;;
+
+(defn both [a b]
+  (hd/thin (hd/bundle a b)))
+
+;; ?
+#_(defn possibly [a b]
+    (hd/thin (hd/bundle a b)))
+
+(defn neither [a b]
+  (hd/bind a b))
+
+(defn roughly [a amount-of-a])
+
+(defn mostly [a b amount-of-a])
+
+(defn never [e b]
+  (f/- e b))
+
+(def impossibly never)
+
+;; a.k.a. a and b's N-space circles (with width threshold) overlap
+;;
+(defn necessarily [a b threshold])
+
+
+;;
+;; B - prototypes
+;;
+
+(defn non-sense [] (hd/->hv))
+
+;; I think there is something deep about the concept that
+;; non-sense and gensym are the same operation
+(def create non-sense)
+
+
+
+;;
+;; C - analogies
+;;
+
+
 
 (comment
 
@@ -271,8 +320,6 @@
 ;;
 ;;
 
-
-
 (defn branches [exp]
   (cleanup* exp))
 
@@ -340,6 +387,13 @@
 
 (def primitive-op? ifn?)
 
+(defn op-type [op]
+  (cond
+    (:hyper-lambda (meta op))
+    :hyper-lambda
+    (ifn? op)
+    :primitive))
+
 ;;
 ;; A cartesian-product arg-branches implementations
 ;; Different versions are thinkable
@@ -353,16 +407,76 @@
   [op arguments]
   (hd/thin (apply hd/bundle
              (for [op (branches op)]
-               (clj->vsa (if (primitive-op? op)
-                           ;; (+ 1 2 3)
-                           (hd/thin
-                             (apply hd/bundle
-                               ;; (+ (mix 1 10) 20)
-                               (for [branch (arg-branches
-                                              arguments)]
-                                 (clj->vsa (apply op
-                                             branch)))))
-                           nil))))))
+               (clj->vsa
+                 (case (op-type op)
+                   :primitive
+                     ;; (+ 1 2 3)
+                     (hd/thin (apply hd/bundle
+                                ;; (+ (mix 1 10) 20)
+                                (for [branch (arg-branches
+                                               arguments)]
+                                  (clj->vsa (apply op
+                                              branch)))))
+                   :hyper-lambda (apply op arguments)))))))
+
+
+
+;; III. The hyperlambda
+;; λ
+;;
+;; hypervectors in hypervector out
+;;
+;;
+
+;; binding the env means
+;;
+;; making a superposition of `a` in the environment?
+;;
+(hlet
+ [a :banana b :apple]
+ (mix a b))
+
+(hlambda
+ [{:keys [a b]}]
+ (h+ a b))
+
+;; parameters [a b]
+
+(defn ->h-lambda
+  [parameters body environment]
+  (clj->vsa {:body body
+             :environment environment
+             :parameters parameters}))
+
+
+
+(defn eval-h-lambda [hl arguments]
+
+  ;; augment environment
+  ;; eval list
+  ;;
+
+
+  )
+
+(defmacro hyper-fn [& args]
+  `(with-meta
+     (fn ~@args)
+     {:hyper-lambda true}))
+
+(h-eval
+ [hlambda [{:keys [a b]}] (both a b)])
+
+(λ [a b] (both a b))
+
+(h-lambda [a b] (both a b))
+
+(let [a (->prototype :foo)
+      b (->prototype :bar)]
+  (h-eval
+   (clj->vsa [(hyper-fn [a b] (both a b))])))
+
+
 
 (comment
   (cleanup* (h-apply (->prototype +)

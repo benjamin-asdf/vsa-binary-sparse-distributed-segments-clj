@@ -762,7 +762,28 @@
 ;; 'weaken'?
 
 (defn weaken
-  "Returns a weakened vector by dropping a ratio of segments"
+  "Returns a weakened vector by dropping segment bits from `a`.
+
+  This allows one to express the notion of a mix of hypervectors,
+  where they contribute to different amount.
+
+  Weakening the effect of `b` in a bundle:
+
+  (let [a (->hv)
+        b (->hv)]
+    [(similarity a (thin (bundle a (weaken b 0.5))))
+     (similarity a (thin (bundle a b)))])
+  [0.76 0.58]
+
+
+  Mathematically, this is like drawing a line from a to b in hyperspace.
+  Bundle finds a point exactly between a and b. distance(c,b) ≅ 0.5 ≅ distance(c,a).
+
+  With the weaken operation, you can say how far to move from a to b.
+  Like moving on the line between the points.
+
+  This is deterministic.
+  "
   ([a drop-ratio] (weaken a drop-ratio default-opts))
   ([a drop-ratio
     {:bsdc-seg/keys [segment-count segment-length N]}]
@@ -781,32 +802,68 @@
                                          segment-length))
          indices (hv->indices a)
          v (dtype/alloc-zeros :int8 N)]
-     (doseq [idx-in-seg indices
-             i (f/+
-                (f/* (range segment-count) segment-length)
-                )]
-       (dtype/set-value! v i 1))
+     (doall (map (fn [idx-in-seg i]
+                   (when (<= segmentwise-cutoff idx-in-seg)
+                     (dtype/set-value! v i 1)))
+              indices
+              (f/+ (f/* (range segment-count)
+                        segment-length)
+                   indices)))
      (dtt/->tensor v))))
 
 
 
-;; factor of 0 doesn't change anything
-(let [a (->hv)]
-  (= a (weaken a 0)))
-
-;; it is deterministic
-(let [a (->hv)]
-  (=
-   (weaken a 0.5)
-   (weaken a 0.5)))
-
-;; factor of 0 makes it a zero vector
+(comment
+  ;; factor of 0 doesn't change anything
+  (let [a (->hv)]
+    (= a (weaken a 0)))
 
 
+  ;; "1" returns a zero vector
+  (let [a (->hv)] (zero? (f/reduce-+ (weaken a 1))))
+
+  (let [a (->hv)]
+    (f/reduce-+ (weaken a 0)))
+  100
+
+  (for [n (range 10)]
+    (let [a (->hv)]
+      (f/reduce-+ (weaken a 0.5))))
+  '(47 49 47 44 48 50 51 52 48 46)
+
+  ;; it is deterministic
+  (let [a (->hv)]
+    (=
+     (weaken a 0.5)
+     (weaken a 0.5)))
+
+  ;; here is the fun part...
+  ;; I make a mix not of 1:1 a:b, but of 2:1 a:b
+  (for
+      [n (range 10)]
+      (let [a (->hv)
+            b (->hv)]
+        [(similarity a (thin (bundle a (weaken b 0.5))))
+         (similarity a (thin (bundle a b)))]))
+
+  '([0.68 0.48]
+    [0.76 0.47]
+    [0.73 0.52]
+    [0.78 0.58]
+    [0.8 0.58]
+    [0.78 0.5]
+    [0.69 0.48]
+    [0.72 0.5]
+    [0.78 0.54]
+    [0.79 0.57])
 
 
-
-
+  (let [a (->hv)
+        b (->hv)]
+    [(similarity a (thin (bundle a (weaken b 0.5))))
+     (similarity a (thin (bundle a b)))])
+  [0.76 0.58]
+  )
 
 
 

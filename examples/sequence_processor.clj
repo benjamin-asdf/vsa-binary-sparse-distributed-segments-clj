@@ -105,10 +105,12 @@
              first
              :k)))
 
-(defn cleanup* [query-v]
-  (map :k (cleanup-lookup-verbose query-v)))
+(defn cleanup*
+  ([query-v] (cleanup* query-v 0.09))
+  ([query-v threshold]
+   (map :k (cleanup-lookup-verbose query-v threshold))))
 
-(defn mix [a b]
+(defn mix1 [a b]
   (hd/thin (hd/bundle (->prototype a) (->prototype b))))
 
 (defn ->record [kvps]
@@ -164,15 +166,26 @@
    (hd/hv? exp)
    (known (h-nth exp 0))))
 
+
+
 (defn clj->vsa
   [obj]
-  (cond (map? obj) (->record (map (fn [[k v]] [(clj->vsa k)
-                                               (clj->vsa
-                                                 v)])
-                               obj))
+  (cond (map? obj)
+        (->record
+         (map
+          (fn [[k v]]
+            [(clj->vsa k)
+             (clj->vsa
+              v)])
+          obj))
         (or (list? obj) (vector? obj)) (->sequence
-                                         (map clj->vsa obj))
+                                        (map clj->vsa obj))
         (hd/hv? obj) obj
+        ;; there would be alternative ways to do this
+        ;; (symbol? obj) (clj->vsa {:symbol
+        ;; (->prototype obj)})
+        ;; (symbol? obj) (->prototype obj)
+
         :else (->prototype obj)))
 
 (defn unroll
@@ -198,28 +211,87 @@
 ;;
 ;;
 
-(defn both [a b]
-  (hd/thin (hd/bundle a b)))
+(defn mix
+  ([a b & args]
+   (hd/thin (apply f/+ a b args)))
+  ([a b]
+   (hd/thin (hd/bundle a b))))
 
-;; ?
-#_(defn possibly [a b]
-    (hd/thin (hd/bundle a b)))
+(def possibly mix)
+
+(comment
+  (hd/similarity (mix (->prototype :a)
+                      (->prototype :b)
+                      (->prototype :c)
+                      (->prototype :d))
+                 (->prototype :d))
+  0.29)
 
 (defn neither [a b]
   (hd/bind a b))
 
-(defn roughly [a amount-of-a])
+(defn roughly [a amount-of-a]
+  (hd/weaken a (- 1 amount-of-a)))
 
-(defn mostly [a b amount-of-a])
+(defn mostly
+  ([a b] (mostly a b 0.3))
+  ([a b amount-of-b]
+   (hd/thin (hd/bundle a (roughly b amount-of-b)))))
 
 (defn never [e b]
-  (f/- e b))
+  (hd/thin (f/- e b)))
 
 (def impossibly never)
 
+(comment
+  (hd/similarity (impossibly (mix (->prototype :a)
+                                  (->prototype :b)
+                                  (->prototype :c)
+                                  (->prototype :d))
+                             (->prototype :d))
+                 (->prototype :d))
+  0.0
+
+
+  (let [coin (mix (->prototype :heads) (->prototype :tails))]
+    [(cleanup* coin)
+     (cleanup* (never coin (->prototype :tails)))])
+
+  ;; [(:heads :tails) (:heads)]
+
+  (let [coin
+        (mostly
+         (->prototype :heads)
+         (->prototype :tails) 0.05)]
+    [(cleanup* coin)])
+  [(:heads)]
+
+
+  ;; now if you use a higher threshold for cleanup:
+  ;; => it would be quite interesting to modify the threshold dynamically
+  ;;
+  (let [coin
+        (mostly
+         (->prototype :heads)
+         (->prototype :tails) 0.3)]
+    [(hd/similarity coin (->prototype :heads))
+     (hd/similarity coin (->prototype :tails))
+     [(cleanup* coin)
+      (cleanup* coin 0.2)
+      (cleanup* (impossibly coin (->prototype :tails)))]])
+
+  ;; [0.87 0.14 [(:heads :tails) (:heads) (:heads)]]
+
+
+
+  )
+
+
 ;; a.k.a. a and b's N-space circles (with width threshold) overlap
 ;;
-(defn necessarily [a b threshold])
+;; ... or there is a point c in the memory between the 2?
+;;
+;; (defn necessarily [a b threshold])
 
 
 ;;
@@ -294,16 +366,300 @@
 ;; In hyperlisp, expressions are hypervectors
 ;;
 
+;;
+;; the *h-environment* could be a sparse distributed memory ?
+;;
+;; here, I will make the h-enviroment be hypervector map
+;; (a set of key value bound pairs like `->record`)
+;;
+;;
+;;
+(def ^:dynamic *h-environment* nil)
+
 (declare h-apply)
 
-(defn h-if? [exp]
-  (and
-   (h-seq? exp)
-   (= 'h-if (cleanup-lookup-value
-           (known
-            (h-nth exp 0))))))
-
 (declare h-eval)
+
+(defn start-symbol
+  [exp]
+  (and (h-seq? exp)
+       (cleanup-lookup-value (known (h-nth exp 0)))))
+
+(def special? '#{if let lambda})
+
+(defn let? [exp] (= 'let (start-symbol exp)))
+(defn lambda? [exp] (= 'lambda (start-symbol exp)))
+(defn if? [exp] (= 'if (start-symbol exp)))
+
+(defn augment-environment
+  "Returns a new environment with a binding for k->v added."
+  [env k v]
+  (hd/bundle env (hd/bind k v)))
+
+(defn eval-let
+  [exp]
+  (let [bindings
+        (for [[k v]
+              (partition
+               2
+               (unroll (known (h-nth exp
+                                     1))))]
+          [k (h-eval v)])
+        body (known (h-nth exp 2))
+        new-env (if bindings
+                  (hd/thin
+                   (reduce (fn [env [k v]]
+                             (augment-environment
+                              env
+                              k
+                              (h-eval v)))
+                           (or *h-environment* (hd/->hv))
+                           bindings))
+                  *h-environment*)]
+    (binding [*h-environment* new-env]
+      (h-eval body))))
+
+(defn eval-lambda
+  [exp]
+  (let [parameters (known (h-nth exp 1))
+        body (known (h-nth exp 2))]
+    (with-meta
+      (fn [& arguments]
+        (let [new-env
+              (hd/thin
+               (reduce (fn [env [k v]]
+                         (augment-environment env k v))
+                       (or *h-environment* (hd/->hv))
+                       (map vector parameters arguments)))]
+          (binding [*h-environment* new-env]
+            (h-eval body))))
+      {:hyper-fn true})))
+
+(defn variable?
+  [exp]
+  (symbol? (cleanup-lookup-value exp)))
+
+(defn lookup-variable [exp env]
+  (hd/unbind env exp))
+
+(comment
+
+  (let [letexp (clj->vsa '(let [a 10 b 20] (+ a b)))
+        exp letexp
+        bindings
+        (for [[k v]
+              (partition
+               2
+               (unroll (known (h-nth exp 1))))]
+          [k (h-eval v)])
+        body (h-nth exp 2)
+        new-env
+        (if bindings
+          (hd/thin
+           (reduce
+            (fn [env [k v]]
+              (augment-environment
+               env
+               k
+               (h-eval v)))
+            (or *h-environment* (hd/->hv))
+            bindings))
+          *h-environment*)]
+    ;; (eval-let letexp)
+    (cleanup* (lookup-variable (clj->vsa 'b) new-env))
+    (cleanup*
+     (hd/unbind new-env (clj->vsa 'a))))
+
+
+  (unroll
+   (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]]))
+
+  (let [letexp (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]])
+        exp letexp
+        bindings
+        (for [[k v]
+              (partition
+               2
+               (unroll (known (h-nth exp 1))))]
+          [k (h-eval v)])
+        body (h-nth exp 2)
+        new-env
+        (if bindings
+          (hd/thin
+           (reduce
+            (fn [env [k v]]
+              (augment-environment
+               env
+               k
+               (h-eval v)))
+            (or *h-environment* (hd/->hv))
+            bindings))
+          *h-environment*)]
+    (cleanup*
+     (hd/unbind new-env (clj->vsa 'a)))
+
+    (binding [*h-environment* new-env]
+      (cleanup*
+       (h-eval (clj->vsa 'a))))
+
+    (binding [*h-environment* new-env]
+      ;; (map cleanup-lookup-value (unroll body))
+      ;; (h-seq? body)
+      ;; [(h-if? body) (let? body)]
+      ;; (let
+      ;;     [exp body]
+      ;;     (let [lst (unroll exp)]
+      ;;       ;; (h-apply
+      ;;       ;;  (h-eval (first lst))
+      ;;       ;;  (map h-eval (rest lst)))
+      ;;       ;; (map cleanup-lookup-value (map h-eval (rest lst)))
+      ;;       (map variable? (rest lst))
+      ;;       (map h-eval (map known (rest lst)))
+      ;;       (map cleanup*
+      ;;            (map h-eval (map known (rest lst))))
+      ;;       (map cleanup-lookup-value (rest lst))
+      ;;       (doall (map cleanup-lookup-value (map h-eval (map clj->vsa '(a b)))))))
+
+      (cleanup* (h-eval body))))
+
+
+  '(30)
+
+  ;; (false true true)
+
+  ;; (10)
+
+  (cleanup* (h-eval
+             (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]])))
+  '(30)
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let '[a 10 b 20]
+      ['let '[b 100]
+       [+ 'a 'b]
+       ]])))
+  ;; (30 110)
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let '[a 10 b 20]
+      ['let '[b 200]
+       'b]])))
+  ;; (200 20)
+
+
+  (h-eval (clj->vsa ['let
+                     ['a 10 'b [+ 200 600]]
+                     [+ 'a 'b]]))
+  ;; #tech.v3.tensor<int8>[10000]
+  ;; [0 0 0 ... 0 0 0]
+  ;; (cleanup* *1)
+  ;; (810)
+  (mix (hd/->hv) (hd/->hv))
+
+
+  (let [a-quoted (hd/permute (clj->vsa 'a))]
+    (= a-quoted (h-eval a-quoted)))
+
+
+
+  (binding
+      [*h-environment*
+       (-> (augment-environment (hd/->hv)
+                                (clj->vsa 'a)
+                                (clj->vsa 10))
+           (augment-environment (clj->vsa 'b)
+                                (clj->vsa 20)))]
+      (let [a-quoted (hd/permute (clj->vsa 'a))
+            a (clj->vsa 'a)]
+        [(cleanup* (h-eval a-quoted))
+         (cleanup* (h-eval a))]))
+  ;; [() (10)]
+
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     '(let [a 10
+            b 20]
+        (+ a b)))))
+
+  (cleanup* exp)
+
+  (cleanup* (hd/unbind env (hd/permute-inverse exp))))
+
+
+(comment
+
+  (cleanup*
+   (hd/permute-inverse
+    (h-nth (clj->vsa '(+ a b)) 1)))
+
+  (cleanup-lookup-value
+   (hd/permute-inverse (h-nth (clj->vsa '(+ a b)) 0)))
+
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     '(let [a 10 b 20]
+        (+ a b)))))
+
+  (let? (clj->vsa '(let [a 10 b 20] (+ a b))))
+
+
+
+  (h-nth (clj->vsa '(let [a 10 b 20] (+ a b))) 1)
+
+  (for [[k v]
+        (partition
+         2
+         (unroll
+          (known
+           (h-nth
+            (clj->vsa
+             '(let
+                  [a 10 b 20]
+                  (+ a b)))
+            1))))]
+    [(cleanup* (hd/permute-inverse k))
+     (cleanup* v)])
+
+
+  ;; ([(a) (10)] [(b) (20)])
+
+  ;; (nil 10 nil 20)
+
+  (cleanup*
+   (hd/unbind
+    (clj->vsa {:a 10 :b 20})
+    (->prototype :a)))
+
+  (cleanup*
+   (lookup-variable
+    (clj->vsa 'b)
+    (->
+     (augment-environment
+      (hd/->hv)
+      (clj->vsa 'a)
+      (clj->vsa 10))
+     (augment-environment
+      (clj->vsa 'b)
+      (clj->vsa 20)))))
+  (20)
+
+  (= (hd/permute-inverse (clj->vsa 'a)) (->prototype 'a))
+
+  (= (clj->vsa 'a) (hd/permute (->prototype 'a)))
+
+  (cleanup*
+   (lookup-variable
+    ;; (non-sense)
+    (clj->vsa '{a 10 b 20}))))
+
 
 
 ;; II
@@ -315,8 +671,8 @@
 ;; In hyperlisp,
 ;;
 ;; - expressions can evaluate to more than 1 thing (multi symbols)
-;; - the if expression returns a superposition of the outcome of branches
-;; - the apply returns a superposition of possible argument lists
+;; - the `if` expression returns a superposition of the outcome of branches
+;; - the `apply` returns a superposition of possible argument lists
 ;;
 ;;
 
@@ -356,11 +712,13 @@
 
 
 (comment
-  (cleanup* (eval-if (clj->vsa ['h-if (mix true false) :heads :tails])))
+  (cleanup* (eval-if (clj->vsa ['h-if (mix1 true false) :heads :tails])))
   (:tails :heads)
-  (cleanup* (eval-if (clj->vsa ['h-if (mix 10 false) :heads
+  (cleanup* (eval-if (clj->vsa ['h-if (mix1 10 false) :heads
                                 :tails])))
-  (:tails :heads))
+  (:tails :heads)
+  )
+
 
 (defn h-eval
   [exp]
@@ -373,24 +731,26 @@
     ;; hdv
     ;;
     ;;
-
     (h-if? exp) (eval-if exp)
-
-    (h-seq? exp)
-    (let [lst (unroll exp)]
-      (h-apply (h-eval (first lst))
-               (map h-eval (rest lst))))
-
+    (let? exp) (eval-let exp)
+    (h-seq? exp) (let [lst (unroll exp)]
+                   (h-apply
+                    (h-eval (first lst))
+                    (into []
+                          (map h-eval (rest lst)))))
+    (variable? exp)
+    (lookup-variable
+     exp
+     (or *h-environment* (hd/->hv)))
     ;; (self-evaluating? exp)
-    :else
-    exp))
+    :else exp))
 
 (def primitive-op? ifn?)
 
 (defn op-type [op]
   (cond
-    (:hyper-lambda (meta op))
-    :hyper-lambda
+    (:hyper-fn (meta op))
+    :hyper-fn
     (ifn? op)
     :primitive))
 
@@ -402,7 +762,6 @@
   (let [arglists (map cleanup* arguments)]
     (apply combo/cartesian-product arglists)))
 
-
 (defn h-apply
   [op arguments]
   (hd/thin (apply hd/bundle
@@ -412,12 +771,12 @@
                    :primitive
                      ;; (+ 1 2 3)
                      (hd/thin (apply hd/bundle
-                                ;; (+ (mix 1 10) 20)
+                                ;; (+ (mix1 1 10) 20)
                                 (for [branch (arg-branches
                                                arguments)]
                                   (clj->vsa (apply op
                                               branch)))))
-                   :hyper-lambda (apply op arguments)))))))
+                   :hyper-fn (apply op arguments)))))))
 
 
 
@@ -432,23 +791,14 @@
 ;;
 ;; making a superposition of `a` in the environment?
 ;;
-(hlet
- [a :banana b :apple]
- (mix a b))
+(comment
+  (hlet
+   [a :banana b :apple]
+   (mix1 a b))
 
-(hlambda
- [{:keys [a b]}]
- (h+ a b))
-
-;; parameters [a b]
-
-(defn ->h-lambda
-  [parameters body environment]
-  (clj->vsa {:body body
-             :environment environment
-             :parameters parameters}))
-
-
+  (hlambda
+   [{:keys [a b]}]
+   (h+ a b)))
 
 (defn eval-h-lambda [hl arguments]
 
@@ -462,19 +812,20 @@
 (defmacro hyper-fn [& args]
   `(with-meta
      (fn ~@args)
-     {:hyper-lambda true}))
+     {:hyper-fn true}))
 
-(h-eval
- [hlambda [{:keys [a b]}] (both a b)])
-
-(λ [a b] (both a b))
-
-(h-lambda [a b] (both a b))
-
-(let [a (->prototype :foo)
-      b (->prototype :bar)]
+(comment
   (h-eval
-   (clj->vsa [(hyper-fn [a b] (both a b))])))
+   [hlambda [{:keys [a b]}] (both a b)])
+
+  (λ [a b] (both a b))
+
+  (h-lambda [a b] (both a b))
+
+  (let [a (->prototype :foo)
+        b (->prototype :bar)]
+    (h-eval
+     (clj->vsa [(hyper-fn [a b] (both a b))]))))
 
 
 
@@ -484,19 +835,19 @@
   ;; (3)
 
   3
-  (cleanup* (h-apply (mix + -) (unroll (clj->vsa [1 2 3]))))
+  (cleanup* (h-apply (mix1 + -) (unroll (clj->vsa [1 2 3]))))
   ;; (6 -4)
   ;; (-4 6)
-  (cleanup* (h-eval (mix 10 20)))
+  (cleanup* (h-eval (mix1 10 20)))
   ;; (10 20)
 
   (cleanup* (h-eval (clj->vsa ['h-if true 30 :bananas])))
   ;; (30)
 
-  (cleanup* (h-eval (clj->vsa ['h-if (mix 10 20) 30 :bananas])))
+  (cleanup* (h-eval (clj->vsa ['h-if (mix1 10 20) 30 :bananas])))
   ;; (30)
 
-  (cleanup* (h-eval (clj->vsa ['h-if (mix 10 false) 30 :bananas])))
+  (cleanup* (h-eval (clj->vsa ['h-if (mix1 10 false) 30 :bananas])))
   ;; (:bananas 30)
   )
 
@@ -511,7 +862,7 @@
 
 
   (cleanup*
-   (h-eval (clj->vsa [(mix
+   (h-eval (clj->vsa [(mix1
                        (fn [a b] (+ (inc a) b))
                        (fn [a b] (+ a a)))
                       20 5])))
@@ -520,22 +871,22 @@
 
   ;; to drive this home:
 
-  (def both-dec-and-inc (mix dec inc))
+  (def both-dec-and-inc (mix1 dec inc))
 
   (cleanup* (h-eval (clj->vsa [both-dec-and-inc 7])))
-  ;; (8 6)
+  ;; (6 8)
 
-  (cleanup* (h-eval (clj->vsa [both-dec-and-inc (mix 5 7)])))
+  (cleanup* (h-eval (clj->vsa [both-dec-and-inc (mix1 5 7)])))
   ;; (8 4 6)
 
-  (cleanup* (h-eval (clj->vsa [both-dec-and-inc (mix 10 20)])))
+  (cleanup* (h-eval (clj->vsa [both-dec-and-inc (mix1 10 20)])))
   ;; (21 19 11 9)
 
 
   (def f1 (fn [a b] (+ (inc a) b)))
   (def f2 (fn [a b] (+ a a)))
 
-  (hd/similarity (mix f1 f2) (->prototype f1))
+  (hd/similarity (mix1 f1 f2) (->prototype f1))
 
   (hd/similarity
    (clj->vsa [:a :b :c])
@@ -556,9 +907,9 @@
 (comment
   (h-eval (clj->vsa [+ 1 2 3]))
   ;; => (6)
-  (h-eval (clj->vsa [(mix - +) 1 2 3]))
+  (h-eval (clj->vsa [(mix1 - +) 1 2 3]))
   ;; => (6 -4)
-  (h-eval (clj->vsa [+ 1 2 (mix 3 30)]))
+  (h-eval (clj->vsa [+ 1 2 (mix1 3 30)]))
   ;; => (6, 33)
   )
 
@@ -727,7 +1078,7 @@
      (hd/unbind
       (spread
        (clj->vsa {:bread? true})
-       (mix :nectar :lava))
+       (mix1 :nectar :lava))
       (clj->vsa :butter))))
 
   ;; the superposition of nectar and lava happen to be butter-like
@@ -742,7 +1093,7 @@
      (hd/unbind
       (spread
        (clj->vsa {:bread? true})
-       (mix :nectar :rocks))
+       (mix1 :nectar :rocks))
       (clj->vsa :butter))))
 
   ;; ... rocks nectar would also work
@@ -762,3 +1113,45 @@
   ;; lava and water are not merely associated
   ;; perhaps they should be *the same*, given the right context
   )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+(comment
+  (let [a (hd/->hv)
+        b (hd/->hv)]
+    ;; then it is 50:50
+    [(hd/similarity a (mostly a b 1.0))
+     (hd/similarity b (mostly a b 1.0))])
+
+  (let [a (hd/->hv)
+        b (hd/->hv)]
+    ;; this is mostly a
+    [(hd/similarity a (mostly a b 0.5))
+     (hd/similarity b (mostly a b 0.5))])
+  [0.79 0.21]
+
+  ;; I guess 0.3 is at the limit of still being similar to b
+  (let [a (hd/->hv)
+        b (hd/->hv)]
+    ;; this is mostly a
+    [(hd/similarity a (mostly a b 0.3))
+     (hd/similarity b (mostly a b 0.3))])
+  [0.77 0.19])

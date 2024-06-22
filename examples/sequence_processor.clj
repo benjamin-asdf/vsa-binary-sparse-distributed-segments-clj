@@ -79,7 +79,6 @@
 
 (defn remember [x] (store auto-a-memory x) x)
 
-
 ;; Make a quick book keeping implementation:
 
 (def hyper-symbols-symbols
@@ -128,13 +127,10 @@
 (defn mix1 [a b]
   (hd/thin (hd/bundle (->prototype a) (->prototype b))))
 
-(defn ->record [kvps]
-  (hd/thin
-   (apply
-    hd/bundle
-    (for [[k v] kvps]
-      (hd/bind k v)))))
-
+(defn ->record
+  [kvps]
+  (hd/thin (apply hd/bundle
+             (for [[k v] kvps] (hd/bind k v)))))
 
 (comment
   (let [a (hd/->hv)
@@ -142,7 +138,6 @@
         ab (hd/thin (hd/bundle a b))
         auto-a-memory [a b ab]]
     (= a (auto-associative-lookup auto-a-memory a))))
-
 
 (comment
   (known (remember (->prototype :a)))
@@ -157,7 +152,8 @@
                  (hd/thin (hd/bundle (->prototype :a)
                                      (hd/->hv)
                                      (hd/->hv)
-                                     (hd/->hv))))))  true)
+                                     (hd/->hv))))))
+  true)
 
 (defn sequence-marker-1 [k] (hd/->hv))
 
@@ -168,22 +164,16 @@
   ;; doesn't allow making lists of noisy sutff ig. Was
   ;; just an attempt... But in principle showcases that
   ;; you can represent sequences with random markers as
-  ;; bind
+  ;; bind (that is equivalent to a random projection
+  ;; for each position in this implementation)
   ;;
-  (run!
-   (fn [x]
-     (when-not
-         (known x 0.9)
-         (remember x)))
-   xs)
-  (hd/thin
-   (apply hd/bundle
-          (map-indexed
-           (fn [i x]
-             (hd/bind x (sequence-marker i)))
-           xs))))
+  (run! (fn [x] (when-not (known x 0.9) (remember x))) xs)
+  (hd/thin (apply hd/bundle
+             (map-indexed (fn [i x]
+                            (hd/bind x (sequence-marker i)))
+                          xs))))
 
-;; theseq is basically a set where the keys correspond to indices
+;; seq is basically a set where the keys correspond to indices
 ;; retrieving is the same as with a record
 
 (defn h-nth [hsx idx]
@@ -220,6 +210,7 @@
             (->sequence (map clj->vsa obj)))
 
         (hd/hv? obj) obj
+
         ;; there would be alternative ways to do this
         ;; (symbol? obj) (clj->vsa {:symbol
         ;; (->prototype obj)})
@@ -247,7 +238,6 @@
     [(f [e]
        (if (hd/hv? e) (cleanup-lookup-value e) (map f e)))]
     (map f form)))
-
 
 
 ;;
@@ -324,8 +314,6 @@
 
   ;; [0.87 0.14 [(:heads :tails) (:heads) (:heads)]]
 
-
-
   )
 
 
@@ -346,10 +334,6 @@
 ;; non-sense and gensym are the same operation
 (def create non-sense)
 
-
-
-
-
 (defn make-hyper [op] (with-meta op {:hyper-fn true}))
 (defn mark-hyper [v] (alter-var-root v make-hyper))
 
@@ -365,43 +349,13 @@
   (mark-hyper #'create))
 
 
-(comment
-  (meta (first (cleanup* (clj->vsa mix))))
-
-  (primitive-type
-   (first
-    (branches
-     (clj->vsa mix))))
-
-  (cleanup*
-   (h-eval
-    (clj->vsa [mix :a :b])
-    (create)))
-  '(:b :a)
-
-  )
-
-
-
 
 
 ;;
 ;; C - analogies
 ;;
-
-
-(comment
-
-  (hd/similarity
-   (clj->vsa [:x :y :z])
-   (h-nth (clj->vsa [:a [:x :y :z]]) 1))
-  0.45
-
-  (walk-cleanup
-   (unroll-tree (clj->vsa [:a [:x :y :z]])))
-  ;; (:a (:x :y :z))
-
-  )
+;; wip ...
+;;
 
 
 
@@ -420,7 +374,6 @@
 ;;
 ;; here, I will make the h-enviroment be hypervector map
 ;; (a set of key value bound pairs like `->record`)
-;;
 ;;
 ;;
 (def ^:dynamic *h-environment* nil)
@@ -448,24 +401,20 @@
 (defn eval-let
   ([exp] (eval-let exp *h-environment*))
   ([exp env]
-   (let [bindings
-         (for [[k v]
-               (partition
-                2
-                (unroll (known (h-nth exp 1))))]
-           [(known k)
-            (h-eval v env)])
+   (let [bindings (for [[k v] (partition
+                                2
+                                (unroll (known (h-nth exp
+                                                      1))))]
+                    [(known k) (h-eval v env)])
          body (known (h-nth exp 2))
          new-env
-         (if bindings
-           (hd/thin
-            (reduce
-             (fn [env [k v]]
-               (augment-environment env k v))
-             env
-             bindings))
-           env)]
-     (def theletenv new-env)
+           (if bindings
+             (hd/thin
+               (reduce (fn [env [k v]]
+                         (augment-environment env k v))
+                 env
+                 bindings))
+             env)]
      (h-eval body new-env))))
 
 (comment
@@ -542,7 +491,7 @@
   ;; (5)
 
   ;; calling a hyperlambda:
-  (cleanup* (h-eval (clj->vsa [thelambda]) (create)))
+  (cleanup* (h-eval (clj->vsa [thelambda])))
   ;; (5)
 
 
@@ -551,61 +500,45 @@
   ;; Lambda objects only take the environment into account
   ;; that they are created with
   ;; (no binding of dynamic vars)
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     ['let
-      ['b 100]
-      [thelambda]])
-    (create)))
+  (cleanup* (h-eval (clj->vsa ['let ['b 100] [thelambda]])))
   ;; (5)
 
   ;; lol, creating hyperlambda with superposition of environments and calling it:
 
   (cleanup*
-   (h-eval
-    (clj->vsa
-     [['let ['b 5]
-       ['let ['b 100]
-        ['lambda [] 'b]]]])
-    (create)))
+   (h-eval (clj->vsa [['let ['b 5]
+                       ['let ['b 100]
+                        ['lambda [] 'b]]]])))
 
   ;; (100 5)
 
   ;; and now b + 100 means 2 things:
 
   (cleanup*
-   (h-eval
-    (clj->vsa
-     [['let ['b 5]
-       ['let ['b 100]
-        ['lambda []
-         [+ 100 'b]]]]])
-    (create)))
+   (h-eval (clj->vsa [['let ['b 5]
+                       ['let ['b 100]
+                        ['lambda [] [+ 100 'b]]]]])))
   ;; (200 105)
 
   ;; redefine coin:
 
   (def coin-hyper
-    (h-eval
-     (clj->vsa
-      ['let ['coin [mix :heads :tails]]
-       ['lambda [] 'coin]])
-     (create)))
+    (h-eval (clj->vsa ['let ['coin [mix :heads :tails]]
+                       ['lambda [] 'coin]])))
 
   ;; this is a hypervector
   coin-hyper
   ;;   #tech.v3.tensor<int8>[10000]
   ;; [0 0 0 ... 0 0 0]
 
-  ;; and the evaluator can call it
-  ;; resulting in a hypervector
+  ;; and the evaluator can call it as function,
 
-  (h-eval (clj->vsa [coin-hyper]) (create))
+  (h-eval (clj->vsa [coin-hyper]))
 
   ;;   #tech.v3.tensor<int8>[10000]
   ;; [0 0 0 ... 0 0 0]
 
+  ;; the ouctome is a hypervector
   ;; .. that represents the superposition of multiple symbols:
 
   (cleanup* (h-eval (clj->vsa [coin-hyper]) (create)))
@@ -634,43 +567,32 @@
 
   (cleanup*
    (h-eval
-    (clj->vsa
-     [[mix
-       ['lambda ['a] [* 2 'a]]
-       ['lambda ['a] [* 10 'a]]]
-      10])
-    (create)))
+    (clj->vsa [[mix
+                ['lambda ['a] [* 2 'a]]
+                ['lambda ['a] [* 10 'a]]]
+               10])))
   ;; (20 100)
 
   (cleanup*
    (h-eval
     (clj->vsa
-     [[mix
-       ['lambda ['a] [* 2 'a]]
-       ['lambda ['a] [[mix + - *] 10 'a]]]
-      10])
-    (create)))
+     [[mix ['lambda ['a] [* 2 'a]]
+       ['lambda ['a]
+        [[mix + - *] 10 'a]]] 10])))
 
 
   ;; (20 0 100)
 
-
   (cleanup*
    (h-eval
     (clj->vsa
-     [[mix
-       ['lambda ['a] [* 2 'a]]
-       ['lambda ['a] [[mix + - *] 5 'a]]]
-      10])
-    (create)))
+     [[mix ['lambda ['a] [* 2 'a]]
+       ['lambda ['a]
+        [[mix + - *] 5 'a]]] 10])))
 
   ;; (20 50 15 -5)
 
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     [[mix + - *] 10 10])
-    (create)))
+  (cleanup* (h-eval (clj->vsa [[mix + - *] 10 10])))
 
   ;; (100 20 0)
 
@@ -749,91 +671,23 @@
 
 (defn eval-compound-procedure
   [proc arguments]
-  (let [newEnv (extend-environment
+  (let [new-env (extend-environment
                 (procedure->parameters proc)
                 arguments
                 ;; this can be nil, then every thing
                 ;; is free variables
                 (or (procedure->environment proc)
                     (non-sense)))]
-    (h-eval (procedure->body proc) newEnv)))
-
-
-(comment
-
-
-  (cleanup-lookup-value
-   (lookup-variable
-    (clj->vsa 'a)
-    (fabrikate-environment
-     {'a 10
-      'b 100})))
-  10
-
-
-  (cleanup*
-   (h-eval
-    (clj->vsa [['lambda ['a 'b] [+ 'a 'b]] 20 21])
-    (non-sense)))
-
-  ;; (41)
-
-  ;; here is something strange:
-  ;; wouldn't it be sick to substitute + for -  in an expression?
-
-  ;; the address of the + is...
-  ;; -> nth 0 -> :body -> nth 0
-  ;; '((lambda (a b) ([clojure.core/+] a b)) 20 21)
-
-  ;; 1. if + would be part of the lambda env, then substitutiing would be easier
-
-  (cleanup* (h-eval (clj->vsa [['let ['a 100 'b 200]
-                                ['lambda ['a 'b] [+ 'a 'b]]]])
-                    (non-sense)))
-  ;; (300)
-
-
-  (cleanup*
-   (h-eval
-    (clj->vsa ['let ['a 100 'b 200] 'a])
-    (non-sense)))
-  ;; (100)
-
-
-
-
-
-
-
-  (walk-cleanp
-   ;; calling known is required, the stuff you get out of
-   ;; unbinding from the seq is too dirty
-   (unroll (known (h-nth (clj->vsa ['let ['a 100 'b 200] ['lambda ['a 'b] [+ 'a 'b]]]) 1))))
-  ;; (a 100 b 200)
-
-
-  )
-
-
-
-
-
-
-
+    (h-eval (procedure->body proc) new-env)))
 
 (defn variable?
   [exp]
   (symbol? (cleanup-lookup-value exp)))
 
 (defn lookup-variable [exp env]
-  (def exp exp)
-  (def env env)
-  ;; (cleanup* exp)
-  ;; (hd/similarity (clj->vsa 'b) exp)
-  ;; (cleanup*  (hd/unbind env exp))
   (hd/unbind env exp))
 
-(defn fabrikate-environment
+(defn fabricate-environment
   [kvps]
   (hd/thin
    (reduce (fn [env [k v]]
@@ -842,158 +696,6 @@
                                   (clj->vsa v)))
            (hd/->hv)
            kvps)))
-
-
-
-
-(comment
-
-  (cleanup*
-   (hd/permute-inverse
-    (h-nth (clj->vsa '(+ a b)) 1)))
-
-  (cleanup-lookup-value
-   (hd/permute-inverse (h-nth (clj->vsa '(+ a b)) 0)))
-
-
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     '(let [a 10 b 20]
-        (+ a b)))))
-
-  (let? (clj->vsa '(let [a 10 b 20] (+ a b))))
-
-
-
-  (h-nth (clj->vsa '(let [a 10 b 20] (+ a b))) 1)
-
-  (for [[k v]
-        (partition
-         2
-         (unroll
-          (known
-           (h-nth
-            (clj->vsa
-             '(let
-                  [a 10 b 20]
-                  (+ a b)))
-            1))))]
-    [(cleanup* (hd/permute-inverse k))
-     (cleanup* v)])
-
-
-  ;; ([(a) (10)] [(b) (20)])
-
-  ;; (nil 10 nil 20)
-
-  (cleanup*
-   (hd/unbind
-    (clj->vsa {:a 10 :b 20})
-    (->prototype :a)))
-
-  (cleanup*
-   (lookup-variable
-    (clj->vsa 'b)
-    (->
-     (augment-environment
-      (hd/->hv)
-      (clj->vsa 'a)
-      (clj->vsa 10))
-     (augment-environment
-      (clj->vsa 'b)
-      (clj->vsa 20)))))
-  (20)
-
-  (= (hd/permute-inverse (clj->vsa 'a)) (->prototype 'a))
-
-  (= (clj->vsa 'a) (hd/permute (->prototype 'a)))
-
-  (cleanup*
-   (lookup-variable
-    ;; (non-sense)
-    (clj->vsa '{a 10 b 20}))))
-
-
-(comment
-  (h-eval (clj->vsa [['let ['a 100 'b 200]
-                      ['lambda ['a 'b] [+ 'a 'b]]]]))
-  (h-nth (clj->vsa [['let ['a 100 'b 200]
-                     ['lambda ['a 'b] [+ 'a 'b]]]])
-         0)
-  (= (clj->vsa [['let ['a 100 'b 200]
-                 ['lambda ['a 'b] [+ 'a 'b]]]])
-     (let [e (clj->vsa ['let ['a 100 'b 200]
-                        ['lambda ['a 'b] [+ 'a 'b]]])]
-       (clj->vsa [e])))
-  (cleanup* (h-eval (let [e (clj->vsa ['let ['a 100 'b 200]
-                                       ['lambda ['a 'b]
-                                        [+ 'a 'b]]])]
-                      (clj->vsa [e]))))
-  (cleanup* (h-eval (clj->vsa [lambda-with-env])))
-
-
-
-  (cleanup*
-   (let
-       [p
-
-        (h-eval
-         (h-nth
-          (clj->vsa
-           [['let ['a 100 'b 200]
-             ['lambda ['a 'b]
-              [+ 'a 'b]]]])
-          0))
-        ]
-     ;; (eval-compound-procedure p nil)
-
-       (procedure->environment p)))
-
-
-
-  (cleanup*
-   (h-eval (clj->vsa [+ 1 2])))
-
-  (cleanup*
-   (h-eval (clj->vsa
-            [+ 1
-             [+ 2 2]])))
-
-
-
-
-  (let
-      [p (h-eval
-          (h-nth (clj->vsa [['let ['a 100 'b 200]
-                             ['lambda ['a 'b]
-                              [+ 'a 'b]]]])
-                 0))]
-    ;; (cleanup*
-    ;;    (lookup-variable
-    ;;     (clj->vsa 'a)
-    ;;     (procedure->environment p)))
-      (cleanup* (eval-compound-procedure p nil)))
-
-
-
-
-
-
-  (= newEnv env)
-
-  (cleanup* (lookup-variable (clj->vsa 'a) newEnv))
-
-  (hd/similarity
-   (clj->vsa 100)
-   (lookup-variable (clj->vsa 'a) newEnv))
-
-
-
-  )
-
-
-
 
 
 ;; II
@@ -1024,7 +726,6 @@
 (defn if-alternative [exp]
   (known (h-nth exp 3)))
 
-
 (defn h-truthy? [o]
   ;; Alternatively,
   ;; could be 'known?'
@@ -1034,51 +735,45 @@
 (defn eval-if
   ([exp] (eval-if exp *h-environment*))
   ([exp env]
-   (let [branches (condition->branches (if-condition exp))]
-     ;;
+   (let [branches (condition->branches
+                    (h-eval (if-condition exp) env))]
      ;; to thin or not to thin is a question
      ;; Because you lose precision
      ;;
-     (hd/thin
-      (apply hd/bundle
-             (for [branch branches]
-               (if (h-truthy? branch)
-                 (h-eval (if-consequence exp) env)
-                 (h-eval (if-alternative exp) env))))))))
+     (if-not (seq branches)
+       ;; that would be an error?
+       (non-sense)
+       (hd/thin (apply hd/bundle
+                  (for [branch branches]
+                    (if (h-truthy? branch)
+                      (h-eval (if-consequence exp) env)
+                      (h-eval (if-alternative exp)
+                              env)))))))))
 
-
-(comment
-  (cleanup* (eval-if (clj->vsa ['h-if (mix1 true false) :heads :tails])))
-  (:tails :heads)
-  (cleanup* (eval-if (clj->vsa ['h-if (mix1 10 false) :heads
-                                :tails])))
-  (:tails :heads)
-  )
 
 (defn h-eval
-  ;; ([exp] (h-eval exp (or *h-environment* (hd/->hv))))
-  [exp env]
-  (cond
-    ;;
-    ;; possiblity: I. hyper eval looks up
-    ;; hypervectors in the cleanup memeory
-    ;;
-    ;; possiblity: II. hyper eval ruturns hdv, for
-    ;; an hdv
-    ;;
-    ;;
-    (lambda? exp) (eval-lambda exp env)
-    (if? exp) (eval-if exp env)
-    (let? exp) (eval-let exp env)
-    (h-seq? exp)
-    (let [lst (unroll exp)]
-      (h-apply
-       (h-eval (first lst) env)
-       (into [] (map #(h-eval % env) (rest lst)))
-       env))
-    (variable? exp) (lookup-variable exp env)
-    ;; (self-evaluating? exp)
-    :else exp))
+  ([exp] (h-eval exp (or *h-environment* (non-sense))))
+  ([exp env]
+   (cond
+     ;;
+     ;; possiblity: I. hyper eval looks up
+     ;; hypervectors in the cleanup memeory
+     ;;
+     ;; possiblity: II. hyper eval ruturns hdv, for an
+     ;; hdv
+     ;;
+     ;;
+     (lambda? exp) (eval-lambda exp env)
+     (if? exp) (eval-if exp env)
+     (let? exp) (eval-let exp env)
+     (h-seq? exp)
+       (let [lst (unroll exp)]
+         (h-apply (h-eval (first lst) env)
+                  (into [] (map #(h-eval % env) (rest lst)))
+                  env))
+     (variable? exp) (lookup-variable exp env)
+     ;; (self-evaluating? exp)
+     :else exp)))
 
 (def primitive-op? ifn?)
 
@@ -1123,9 +818,6 @@
                                                  arguments)
                     (filter compound-procedure?
                       (lookup* auto-a-memory op 0.3))))]
-     (def procs
-       (filter compound-procedure?
-         (lookup* auto-a-memory op 0.3)))
      (if-not (seq (concat primitive-outcomes
                           compound-outcomes))
        ;; guess that's an error
@@ -1141,34 +833,11 @@
 ;; hypervectors in hypervector out
 ;;
 ;;
-
 ;; binding the env means
 ;;
 ;; making a superposition of `a` in the environment?
 ;;
-(comment
-  (hlet
-   [a :banana b :apple]
-   (mix1 a b))
 
-  (hlambda
-   [{:keys [a b]}]
-   (h+ a b)))
-
-
-
-(comment
-  (h-eval
-   [hlambda [{:keys [a b]}] (both a b)])
-
-  (λ [a b] (both a b))
-
-  (h-lambda [a b] (both a b))
-
-  (let [a (->prototype :foo)
-        b (->prototype :bar)]
-    (h-eval
-     (clj->vsa [(hyper-fn [a b] (both a b))]))))
 
 
 
@@ -1184,14 +853,15 @@
   (cleanup* (h-eval (mix1 10 20)))
   ;; (10 20)
 
-  (cleanup* (h-eval (clj->vsa ['h-if true 30 :bananas])))
+  (cleanup* (h-eval (clj->vsa ['if true 30 :bananas])))
   ;; (30)
 
-  (cleanup* (h-eval (clj->vsa ['h-if (mix1 10 20) 30 :bananas])))
+  (cleanup* (h-eval (clj->vsa ['if (mix1 10 20) 30 :bananas])))
   ;; (30)
 
-  (cleanup* (h-eval (clj->vsa ['h-if (mix1 10 false) 30 :bananas])))
-  ;; (:bananas 30)
+  (cleanup* (h-eval (clj->vsa ['if (mix1 10 false) 30 :bananas])))
+  ;; (30 :bananas)
+
   )
 
 
@@ -1225,26 +895,22 @@
   (cleanup* (h-eval (clj->vsa [both-dec-and-inc (mix1 10 20)])))
   ;; (21 19 11 9)
 
-
   (def f1 (fn [a b] (+ (inc a) b)))
   (def f2 (fn [a b] (+ a a)))
 
   (hd/similarity (mix1 f1 f2) (->prototype f1))
 
-  (hd/similarity
-   (clj->vsa [:a :b :c])
-   (clj->vsa [:a :b :c]))
 
   ;; this code is similar...
 
   (hd/similarity
-   (clj->vsa ['h-if :b :c])
+   (clj->vsa ['if :b :c])
    (clj->vsa [:a :b :c]))
 
-  (let [a (clj->vsa ['h-if :b :c])
-        b (clj->vsa [:x :y :z])]
-    (cleanup*
-     (hd/bind a (hd/inverse (sequence-marker 0))))))
+
+
+
+  )
 
 
 (comment
@@ -1254,6 +920,15 @@
   ;; => (6 -4)
   (h-eval (clj->vsa [+ 1 2 (mix1 3 30)]))
   ;; => (6, 33)
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['if [mix true false] :a :b])
+    (create)))
+  ;; (:b :a)
+
+
   )
 
 

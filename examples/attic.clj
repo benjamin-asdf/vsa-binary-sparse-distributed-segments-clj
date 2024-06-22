@@ -864,3 +864,52 @@
 
 
   )
+
+(comment
+  (cleanup-lookup-value
+   (lookup-variable
+    (clj->vsa 'a)
+    (fabricate-environment
+     {'a 10
+      'b 100})))
+  10
+
+
+  (cleanup*
+   (h-eval
+    (clj->vsa [['lambda ['a 'b] [+ 'a 'b]] 20 21])
+    (non-sense)))
+
+  ;; (41)
+
+  ;; here is something strange:
+  ;; wouldn't it be sick to substitute + for -  in an expression?
+
+  ;; the address of the + is...
+  ;; -> nth 0 -> :body -> nth 0
+  ;; '((lambda (a b) ([clojure.core/+] a b)) 20 21)
+
+  ;; 1. if + would be part of the lambda env, then substitutiing would be easier
+
+  (cleanup* (h-eval (clj->vsa [['let ['a 100 'b 200]
+                                ['lambda ['a 'b] [+ 'a 'b]]]])
+                    (non-sense)))
+  ;; (300)
+
+
+  (cleanup*
+   (h-eval
+    (clj->vsa ['let ['a 100 'b 200] 'a])
+    (non-sense)))
+  ;; (100)
+
+
+
+  (walk-cleanp
+   ;; calling known is required, the stuff you get out of
+   ;; unbinding from the seq is too dirty
+   (unroll (known (h-nth (clj->vsa ['let ['a 100 'b 200] ['lambda ['a 'b] [+ 'a 'b]]]) 1))))
+  ;; (a 100 b 200)
+
+
+  )

@@ -72,9 +72,10 @@
    (lookup auto-a-memory x threshod)))
 
 (defn remember-soft
-  [x]
-  (when-not (known x) (store auto-a-memory x))
-  x)
+  ([x] (remember-soft x 0.9))
+  ([x threshod]
+   (when-not (known x threshod) (store auto-a-memory x))
+   x))
 
 (defn remember [x] (store auto-a-memory x) x)
 
@@ -99,7 +100,8 @@
         (let [v (hd/->hv)
               _ (swap! lut assoc sym v)]
           ;; !
-          (remember-soft v)
+          ;; (always a new vec, we just created it)
+          (remember v)
           v)))
   (defn cleanup-lookup-verbose
     ([query-v] (cleanup-lookup-verbose query-v 0.09))
@@ -108,7 +110,7 @@
                  {:k k
                   :similarity (hd/similarity v query-v)
                   :v v})
-               @lut)
+            @lut)
           (filter (comp #(<= threshold %) :similarity))
           (sort-by :similarity (fn [a b] (compare b a))))))
   (defn cleanup-lookup-value
@@ -116,8 +118,7 @@
     (some->> (cleanup-lookup-verbose query-v)
              first
              :k))
-  (defn cleanup-mem []
-    @lut))
+  (defn cleanup-mem [] @lut))
 
 (defn cleanup*
   ([query-v] (cleanup* query-v 0.09))
@@ -189,6 +190,8 @@
   (hd/unbind hsx (sequence-marker idx)))
 
 (defn h-seq? [exp]
+  ;; can also be `:nothing`
+  ;; doesn't count as seq here atm
   (and
    (hd/hv? exp)
    (known (h-nth exp 0))))
@@ -202,8 +205,20 @@
             [(clj->vsa k)
              (clj->vsa v)])
           obj))
-        (or (list? obj) (vector? obj)) (->sequence
-                                        (map clj->vsa obj))
+
+        (or
+         (list? obj)
+         (vector? obj))
+
+        ;; you need to make a decision about
+        ;; how to deal with the empty sequence
+
+        (if
+            (empty? obj)
+            (->prototype :nothing)
+
+            (->sequence (map clj->vsa obj)))
+
         (hd/hv? obj) obj
         ;; there would be alternative ways to do this
         ;; (symbol? obj) (clj->vsa {:symbol
@@ -364,8 +379,6 @@
     (create)))
   '(:b :a)
 
-
-
   )
 
 
@@ -436,23 +449,22 @@
   ([exp] (eval-let exp *h-environment*))
   ([exp env]
    (let [bindings
-           (for [[k v]
-                 (partition
-                  2
-                  (unroll (known (h-nth exp 1))))]
-             [k (h-eval v env)])
+         (for [[k v]
+               (partition
+                2
+                (unroll (known (h-nth exp 1))))]
+           [(known k)
+            (h-eval v env)])
          body (known (h-nth exp 2))
-         new-env (if bindingse
-                   (hd/thin
-                    (reduce
-                     (fn [env [k v]]
-                       (augment-environment
-                        env
-                        k
-                        (h-eval v env)))
-                     env
-                     bindings))
-                   env)]
+         new-env
+         (if bindings
+           (hd/thin
+            (reduce
+             (fn [env [k v]]
+               (augment-environment env k v))
+             env
+             bindings))
+           env)]
      (def theletenv new-env)
      (h-eval body new-env))))
 
@@ -463,14 +475,204 @@
     (clj->vsa ['let ['a 100 'b 200] 'a])
     (non-sense)))
 
+  ;; mix primitives work of course
+  (cleanup*
+   (h-eval
+    (clj->vsa ['let ['a [mix 50 20] 'b 200] 'a])
+    (create)))
+  ;; (20 50)
+
+
+  ;; and here is something thought provoking:
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let ['b 5]
+      ['let
+       ['b 200]
+       'b]])
+    (create)))
+  ;; (200 5)
+
+  ;; instead of shadowing, the enivronment creates a superposition of values
+
+  ;; and the ambiguity primitives work as expected:
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let ['b 5]
+      ['let
+       ['b 200]
+       [never 'b 200]]])
+    (create)))
+  ;; (5)
 
 
   (cleanup*
    (h-eval
-    (clj->vsa ['let ['a () 'b 200] 'a])
-    (non-sense)))
+    (clj->vsa ['let ['b 5] ['lambda [] 'b]])
+    (create)))
+
+  ;; this is a lambda that captures the environment
 
 
+  (def thelambda (h-eval (clj->vsa ['let ['b 5] ['lambda [] 'b]]) (create)))
+  ;; hyperlambdas are hypervectors
+  thelambda
+  ;; #tech.v3.tensor<int8>[10000]
+  ;; [0 0 0 ... 0 0 0]
+
+
+  ;; hyperlambdas have a body, environment and parameters
+
+  (cleanup* (procedure->body thelambda))
+  ;; (b)
+
+  (procedure->environment thelambda)
+  ;;   #tech.v3.tensor<int8>[10000]
+  ;; [0 0 0 ... 0 0 0]
+
+  ;; the env is just a hypervector representing a map (hypermap ?)
+  (cleanup*
+   (hd/unbind
+    (procedure->environment thelambda)
+    (clj->vsa 'b)))
+  ;; (5)
+
+  ;; calling a hyperlambda:
+  (cleanup* (h-eval (clj->vsa [thelambda]) (create)))
+  ;; (5)
+
+
+  ;; messing with the environment:
+
+  ;; Lambda objects only take the environment into account
+  ;; that they are created with
+  ;; (no binding of dynamic vars)
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let
+      ['b 100]
+      [thelambda]])
+    (create)))
+  ;; (5)
+
+  ;; lol, creating hyperlambda with superposition of environments and calling it:
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     [['let ['b 5]
+       ['let ['b 100]
+        ['lambda [] 'b]]]])
+    (create)))
+
+  ;; (100 5)
+
+  ;; and now b + 100 means 2 things:
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     [['let ['b 5]
+       ['let ['b 100]
+        ['lambda []
+         [+ 100 'b]]]]])
+    (create)))
+  ;; (200 105)
+
+  ;; redefine coin:
+
+  (def coin-hyper
+    (h-eval
+     (clj->vsa
+      ['let ['coin [mix :heads :tails]]
+       ['lambda [] 'coin]])
+     (create)))
+
+  ;; this is a hypervector
+  coin-hyper
+  ;;   #tech.v3.tensor<int8>[10000]
+  ;; [0 0 0 ... 0 0 0]
+
+  ;; and the evaluator can call it
+  ;; resulting in a hypervector
+
+  (h-eval (clj->vsa [coin-hyper]) (create))
+
+  ;;   #tech.v3.tensor<int8>[10000]
+  ;; [0 0 0 ... 0 0 0]
+
+  ;; .. that represents the superposition of multiple symbols:
+
+  (cleanup* (h-eval (clj->vsa [coin-hyper]) (create)))
+  ;; (:heads :tails)
+
+
+  ;; never heads:
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     [never [coin-hyper] :heads])
+    (create)))
+  ;; (:tails)
+
+
+  ;; this results in value that is possibly heads or tails or foo
+  (cleanup*
+   (h-eval
+    (clj->vsa [possibly [coin-hyper] :foo])
+    (create)))
+
+  ;; (:foo :heads :tails)
+
+
+  ;; a mix of lambdas is also a thing:
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     [[mix
+       ['lambda ['a] [* 2 'a]]
+       ['lambda ['a] [* 10 'a]]]
+      10])
+    (create)))
+  ;; (20 100)
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     [[mix
+       ['lambda ['a] [* 2 'a]]
+       ['lambda ['a] [[mix + - *] 10 'a]]]
+      10])
+    (create)))
+
+
+  ;; (20 0 100)
+
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     [[mix
+       ['lambda ['a] [* 2 'a]]
+       ['lambda ['a] [[mix + - *] 5 'a]]]
+      10])
+    (create)))
+
+  ;; (20 50 15 -5)
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     [[mix + - *] 10 10])
+    (create)))
+
+  ;; (100 20 0)
 
 
   )
@@ -513,13 +715,17 @@
 
 (defn eval-lambda
   [exp environment]
+  ;; I need the env in the memory, else it get's to
+  ;; dirty for what I want to do
+  (remember-soft environment 0.9)
   (let [parameters (lambda-expr->parameters exp)
-        body (lambda-expr->body exp)]
-    (clj->vsa
-     {:body body
-      :compound-procedure? true
-      :environment environment
-      :parameters parameters})))
+        body (lambda-expr->body exp)
+        lambda (clj->vsa {:body body
+                          :compound-procedure? true
+                          :environment environment
+                          :parameters parameters})]
+    (remember-soft lambda 0.9)
+    lambda))
 
 ;; reference:
 ;; https://mitp-content-server.mit.edu/books/content/sectbyfn/books_pres_0/6515/sicp.zip/full-text/book/book-Z-H-26.html#%25_idx_4236
@@ -533,9 +739,13 @@
     (map vector variables values))))
 
 (defn procedure->body [proc] (known (hd/unbind proc (clj->vsa :body))))
+
 (defn procedure->parameters [proc]
   (map known (unroll (known (hd/unbind proc (clj->vsa :parameters))))))
-(defn procedure->environment [proc] (hd/unbind proc (clj->vsa :environment)))
+
+(defn procedure->environment [proc]
+  (known
+   (hd/unbind proc (clj->vsa :environment))))
 
 (defn eval-compound-procedure
   [proc arguments]
@@ -544,38 +754,13 @@
                 arguments
                 ;; this can be nil, then every thing
                 ;; is free variables
-                (or (known
-                     (procedure->environment proc))
+                (or (procedure->environment proc)
                     (non-sense)))]
-    (def newEnv newEnv)
-    ;; (hd/unbind
-    ;;  newEnv
-    ;;  )
     (h-eval (procedure->body proc) newEnv)))
 
 
 (comment
-  (h-eval
-   (clj->vsa ['lambda ['a 'b] [+ 'a 'b]]))
 
-  (compound-procedure? (h-eval (clj->vsa ['lambda ['a 'b] [+ 'a 'b]])))
-  (compound-procedure? (hd/->hv))
-
-  (map
-   cleanup-lookup-value
-   (procedure->parameters
-    (h-eval
-     (clj->vsa ['lambda ['a 'b] [+ 'a 'b]]))))
-  ;; (a b)
-
-  (cleanup*
-   (eval-compound-procedure
-    (h-eval (clj->vsa ['lambda ['a 'b] [+ 'a 'b]]))
-    (unroll (clj->vsa [20 10]))))
-
-  ;; (30)
-
-  (cleanup* (hd/unbind newEnv (clj->vsa 'a)))
 
   (cleanup-lookup-value
    (lookup-variable
@@ -588,20 +773,13 @@
 
   (cleanup*
    (h-eval
-    (clj->vsa [['lambda ['a 'b] [+ 'a 'b]] 20 21])))
+    (clj->vsa [['lambda ['a 'b] [+ 'a 'b]] 20 21])
+    (non-sense)))
 
   ;; (41)
 
   ;; here is something strange:
-  (let [lambda-appl-expr
-        (clj->vsa [['lambda ['a 'b] [+ 'a 'b]] 20 21])]
-
-    ;; wouldn't be super sick if you could substitute + for - now and see what it evals to?
-    ;; but the representation of + is sort of burried in the sequence representation
-
-
-    )
-
+  ;; wouldn't it be sick to substitute + for -  in an expression?
 
   ;; the address of the + is...
   ;; -> nth 0 -> :body -> nth 0
@@ -609,18 +787,17 @@
 
   ;; 1. if + would be part of the lambda env, then substitutiing would be easier
 
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     ['let ['a 100 'b 200]
-      ['lambda ['a 'b] [+ 'a 'b]]])
-    (non-sense)))
+  (cleanup* (h-eval (clj->vsa [['let ['a 100 'b 200]
+                                ['lambda ['a 'b] [+ 'a 'b]]]])
+                    (non-sense)))
+  ;; (300)
 
 
   (cleanup*
    (h-eval
     (clj->vsa ['let ['a 100 'b 200] 'a])
     (non-sense)))
+  ;; (100)
 
 
 
@@ -635,81 +812,7 @@
   ;; (a 100 b 200)
 
 
-
-  (hd/similarity
-   (h-nth (clj->vsa ['let ['a 100 'b 200] ['lambda ['a 'b] [+ 'a 'b]]]) 1)
-   (clj->vsa ['a 100 'b 200]))
-
-  (hd/similarity
-   (h-nth (clj->vsa ['let ['a 100 'b 200] ['lambda ['a 'b] [+ 'a 'b]]]) 1)
-   (clj->vsa ['a 'b]))
-
-  ;; thats the thing, you get the other seq
-  (hd/similarity
-   (known (clj->vsa ['a 100 'b 200]))
-   (clj->vsa ['a 'b]))
-
-  (hd/similarity
-   (clj->vsa ['a 100 'b 200])
-   (clj->vsa ['a 'b]))
-
-  (map cleanup* (unroll (known (clj->vsa ['a 100 'b 200]))))
-
-
-  (known (clj->vsa ['a 100 'b 200]))
-
-  theletenv
-
-  (let
-      [lambda-with-env
-       (clj->vsa
-        ['let ['a 100 'b 200]
-         ['lambda ['a 'b] [+ 'a 'b]]])
-       lambda-with-env (h-eval lambda-with-env)]
-
-    ;; (cleanup*
-    ;;  (lookup-variable
-    ;;   (clj->vsa 'a)
-    ;;   (procedure->environment lambda-with-env)))
-
-
-    ;; (cleanup*
-    ;;  (h-eval
-    ;;   (hd/bundle
-    ;;    lambda-with-env
-    ;;    (hd/bind
-    ;;     (clj->vsa :environment)
-    ;;     (clj->vsa {'a 5})))))
-      )
-
-
-
-
-
-
-
-
-  (let
-
-      [lambda-with-env (clj->vsa ['let ['a 100 'b 200]
-                                  ['lambda ['a 'b]
-                                   [+ 'a 'b]]])
-       ;; lambda-with-env (h-eval lambda-with-env)
-       ]
-
-    ;; (def lambda-with-env lambda-with-env)
-
-    ;; (cleanup* (h-eval (clj->vsa [lambda-with-env])))
-
-      (cleanup*
-       (h-eval
-        (clj->vsa
-         [['let ['a 100 'b 200]
-           ['lambda ['a 'b]
-            [+ 'a 'b]]]]))))
-
-
-  '(let (a 100 b 200) (lambda (a b) ([clojure.core/+] a b))))
+  )
 
 
 
@@ -741,155 +844,6 @@
            kvps)))
 
 
-
-(comment
-
-  (let [letexp (clj->vsa '(let [a 10 b 20] (+ a b)))
-        exp letexp
-        bindings
-        (for [[k v]
-              (partition
-               2
-               (unroll (known (h-nth exp 1))))]
-          [k (h-eval v)])
-        body (h-nth exp 2)
-        new-env
-        (if bindings
-          (hd/thin
-           (reduce
-            (fn [env [k v]]
-              (augment-environment
-               env
-               k
-               (h-eval v)))
-            (or *h-environment* (hd/->hv))
-            bindings))
-          *h-environment*)]
-    ;; (eval-let letexp)
-    (cleanup* (lookup-variable (clj->vsa 'b) new-env))
-    (cleanup*
-     (hd/unbind new-env (clj->vsa 'a))))
-
-
-  (unroll
-   (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]]))
-
-  (let [letexp (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]])
-        exp letexp
-        bindings
-        (for [[k v]
-              (partition
-               2
-               (unroll (known (h-nth exp 1))))]
-          [k (h-eval v)])
-        body (h-nth exp 2)
-        new-env
-        (if bindings
-          (hd/thin
-           (reduce
-            (fn [env [k v]]
-              (augment-environment
-               env
-               k
-               (h-eval v)))
-            (or *h-environment* (hd/->hv))
-            bindings))
-          *h-environment*)]
-    (cleanup*
-     (hd/unbind new-env (clj->vsa 'a)))
-
-    (binding [*h-environment* new-env]
-      (cleanup*
-       (h-eval (clj->vsa 'a))))
-
-    (binding [*h-environment* new-env]
-      ;; (map cleanup-lookup-value (unroll body))
-      ;; (h-seq? body)
-      ;; [(h-if? body) (let? body)]
-      ;; (let
-      ;;     [exp body]
-      ;;     (let [lst (unroll exp)]
-      ;;       ;; (h-apply
-      ;;       ;;  (h-eval (first lst))
-      ;;       ;;  (map h-eval (rest lst)))
-      ;;       ;; (map cleanup-lookup-value (map h-eval (rest lst)))
-      ;;       (map variable? (rest lst))
-      ;;       (map h-eval (map known (rest lst)))
-      ;;       (map cleanup*
-      ;;            (map h-eval (map known (rest lst))))
-      ;;       (map cleanup-lookup-value (rest lst))
-      ;;       (doall (map cleanup-lookup-value (map h-eval (map clj->vsa '(a b)))))))
-
-      (cleanup* (h-eval body))))
-
-
-  '(30)
-
-  ;; (false true true)
-
-  ;; (10)
-
-  (cleanup* (h-eval
-             (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]])))
-  '(30)
-
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     ['let '[a 10 b 20]
-      ['let '[b 100]
-       [+ 'a 'b]
-       ]])))
-  ;; (30 110)
-
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     ['let '[a 10 b 20]
-      ['let '[b 200]
-       'b]])))
-  ;; (200 20)
-
-
-  (h-eval (clj->vsa ['let
-                     ['a 10 'b [+ 200 600]]
-                     [+ 'a 'b]]))
-  ;; #tech.v3.tensor<int8>[10000]
-  ;; [0 0 0 ... 0 0 0]
-  ;; (cleanup* *1)
-  ;; (810)
-  (mix (hd/->hv) (hd/->hv))
-
-
-  (let [a-quoted (hd/permute (clj->vsa 'a))]
-    (= a-quoted (h-eval a-quoted)))
-
-
-
-  (binding
-      [*h-environment*
-       (-> (augment-environment (hd/->hv)
-                                (clj->vsa 'a)
-                                (clj->vsa 10))
-           (augment-environment (clj->vsa 'b)
-                                (clj->vsa 20)))]
-      (let [a-quoted (hd/permute (clj->vsa 'a))
-            a (clj->vsa 'a)]
-        [(cleanup* (h-eval a-quoted))
-         (cleanup* (h-eval a))]))
-  ;; [() (10)]
-
-
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     '(let [a 10
-            b 20]
-        (+ a b)))))
-
-  (cleanup* exp)
-
-  (cleanup* (hd/unbind env (hd/permute-inverse exp))))
 
 
 (comment
@@ -1148,25 +1102,37 @@
 (defn h-apply
   ([op arguments] (h-apply op arguments *h-environment*))
   ([op arguments env]
-   (if (compound-procedure? op)
-     (eval-compound-procedure op arguments)
-     (hd/thin
-       (apply hd/bundle
-         (for [op (branches op)]
-           (clj->vsa
-             (case (primitive-type op)
-               :primitive
-                 ;; (+ 1 2 3)
-                 (hd/thin (apply hd/bundle
-                            ;; (+ (mix1 1 10) 20)
-                            (let [branches (arg-branches
-                                             arguments)]
-                              (if (seq? branches)
-                                (for [branch branches]
-                                  (clj->vsa (apply op
-                                              branch)))
-                                [(clj->vsa (op))]))))
-               :hyper-fn (apply op arguments)))))))))
+   (let [primitive-outcomes
+           (for [op (branches op)]
+             (clj->vsa (case (primitive-type op)
+                         :primitive
+                           ;; (+ 1 2 3)
+                           (hd/thin
+                             (apply hd/bundle
+                               ;; (+ (mix1 1 10) 20)
+                               (let [branches (arg-branches
+                                                arguments)]
+                                 (if (seq? branches)
+                                   (for [branch branches]
+                                     (clj->vsa (apply op
+                                                 branch)))
+                                   [(clj->vsa (op))]))))
+                         :hyper-fn (apply op arguments))))
+         compound-outcomes
+           (doall (map #(eval-compound-procedure %
+                                                 arguments)
+                    (filter compound-procedure?
+                      (lookup* auto-a-memory op 0.3))))]
+     (def procs
+       (filter compound-procedure?
+         (lookup* auto-a-memory op 0.3)))
+     (if-not (seq (concat primitive-outcomes
+                          compound-outcomes))
+       ;; guess that's an error
+       (non-sense)
+       (hd/thin (apply hd/bundle
+                  (concat primitive-outcomes
+                          compound-outcomes)))))))
 
 
 ;; III. The hyperlambda

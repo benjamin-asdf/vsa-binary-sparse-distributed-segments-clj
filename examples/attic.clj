@@ -645,6 +645,155 @@
 ;; not like this
 (comment
 
+  (let [letexp (clj->vsa '(let [a 10 b 20] (+ a b)))
+        exp letexp
+        bindings
+        (for [[k v]
+              (partition
+               2
+               (unroll (known (h-nth exp 1))))]
+          [k (h-eval v)])
+        body (h-nth exp 2)
+        new-env
+        (if bindings
+          (hd/thin
+           (reduce
+            (fn [env [k v]]
+              (augment-environment
+               env
+               k
+               (h-eval v)))
+            (or *h-environment* (hd/->hv))
+            bindings))
+          *h-environment*)]
+    ;; (eval-let letexp)
+    (cleanup* (lookup-variable (clj->vsa 'b) new-env))
+    (cleanup*
+     (hd/unbind new-env (clj->vsa 'a))))
+
+
+  (unroll
+   (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]]))
+
+  (let [letexp (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]])
+        exp letexp
+        bindings
+        (for [[k v]
+              (partition
+               2
+               (unroll (known (h-nth exp 1))))]
+          [k (h-eval v)])
+        body (h-nth exp 2)
+        new-env
+        (if bindings
+          (hd/thin
+           (reduce
+            (fn [env [k v]]
+              (augment-environment
+               env
+               k
+               (h-eval v)))
+            (or *h-environment* (hd/->hv))
+            bindings))
+          *h-environment*)]
+    (cleanup*
+     (hd/unbind new-env (clj->vsa 'a)))
+
+    (binding [*h-environment* new-env]
+      (cleanup*
+       (h-eval (clj->vsa 'a))))
+
+    (binding [*h-environment* new-env]
+      ;; (map cleanup-lookup-value (unroll body))
+      ;; (h-seq? body)
+      ;; [(h-if? body) (let? body)]
+      ;; (let
+      ;;     [exp body]
+      ;;     (let [lst (unroll exp)]
+      ;;       ;; (h-apply
+      ;;       ;;  (h-eval (first lst))
+      ;;       ;;  (map h-eval (rest lst)))
+      ;;       ;; (map cleanup-lookup-value (map h-eval (rest lst)))
+      ;;       (map variable? (rest lst))
+      ;;       (map h-eval (map known (rest lst)))
+      ;;       (map cleanup*
+      ;;            (map h-eval (map known (rest lst))))
+      ;;       (map cleanup-lookup-value (rest lst))
+      ;;       (doall (map cleanup-lookup-value (map h-eval (map clj->vsa '(a b)))))))
+
+      (cleanup* (h-eval body))))
+
+
+  '(30)
+
+  ;; (false true true)
+
+  ;; (10)
+
+  (cleanup* (h-eval
+             (clj->vsa ['let '[a 10 b 20] [+ 'a 'b]])))
+  '(30)
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let '[a 10 b 20]
+      ['let '[b 100]
+       [+ 'a 'b]
+       ]])))
+  ;; (30 110)
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let '[a 10 b 20]
+      ['let '[b 200]
+       'b]])))
+  ;; (200 20)
+
+
+  (h-eval (clj->vsa ['let
+                     ['a 10 'b [+ 200 600]]
+                     [+ 'a 'b]]))
+  ;; #tech.v3.tensor<int8>[10000]
+  ;; [0 0 0 ... 0 0 0]
+  ;; (cleanup* *1)
+  ;; (810)
+  (mix (hd/->hv) (hd/->hv))
+
+
+  (let [a-quoted (hd/permute (clj->vsa 'a))]
+    (= a-quoted (h-eval a-quoted)))
+
+
+
+  (binding
+      [*h-environment*
+       (-> (augment-environment (hd/->hv)
+                                (clj->vsa 'a)
+                                (clj->vsa 10))
+           (augment-environment (clj->vsa 'b)
+                                (clj->vsa 20)))]
+      (let [a-quoted (hd/permute (clj->vsa 'a))
+            a (clj->vsa 'a)]
+        [(cleanup* (h-eval a-quoted))
+         (cleanup* (h-eval a))]))
+  ;; [() (10)]
+
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     '(let [a 10
+            b 20]
+        (+ a b)))))
+
+  (cleanup* exp)
+
+  (cleanup* (hd/unbind env (hd/permute-inverse exp))))
+
+(comment
+
   ;; replace lava for water in a container record
   (let [container-lava
         (clj->vsa {:inside :lava :kind :bucket})
@@ -711,4 +860,7 @@
       container-lava
 
       ;; :lava
-      (hd/unbind container-lava (clj->vsa :inside))))))
+      (hd/unbind container-lava (clj->vsa :inside)))))
+
+
+  )

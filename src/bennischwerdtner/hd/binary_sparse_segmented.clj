@@ -133,12 +133,15 @@
                             #(fm.rand/irand
                               segment-length)))))
 
+(def ->seed ->hv)
+
 ;; good enough for my needs
 (defn hv?
   "Returns true when `x` is a hypervector."
   ([x] (hv? x default-opts))
   ([x {:bsdc-seg/keys [N]}]
    (and (dtt/tensor? x) (= N (dtype/ecount x)))))
+
 
 
 (defn maximally-sparse?

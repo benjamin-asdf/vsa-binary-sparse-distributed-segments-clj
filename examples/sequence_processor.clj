@@ -2,7 +2,7 @@
 ;; just experiments
 ;;
 
-(ns sequence-perocessor
+(ns sequence-processor
   (:require
    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
    [tech.v3.datatype :as dtype]
@@ -143,17 +143,6 @@
   (known (remember (->prototype :a)))
   (known (hd/->hv)))
 
-(comment
-  (do (store auto-a-memory (->prototype :a))
-      (store auto-a-memory (->prototype :b))
-      (store auto-a-memory (->prototype :c))
-      (= (->prototype :a)
-         (lookup auto-a-memory
-                 (hd/thin (hd/bundle (->prototype :a)
-                                     (hd/->hv)
-                                     (hd/->hv)
-                                     (hd/->hv))))))
-  true)
 
 (defn sequence-marker-1 [k] (hd/->hv))
 
@@ -287,15 +276,15 @@
 
   (let [coin (mix (->prototype :heads) (->prototype :tails))]
     [(cleanup* coin)
-     (cleanup* (never coin (->prototype :tails)))])
+     (cleanup* (never coin (->prototype :tails)))]
 
-  ;; [(:heads :tails) (:heads)]
+    ;; [(:heads :tails) (:heads)]
 
-  (let [coin
-        (mostly
-         (->prototype :heads)
-         (->prototype :tails) 0.05)]
-    [(cleanup* coin)])
+    (let [coin
+          (mostly
+           (->prototype :heads)
+           (->prototype :tails) 0.05)]
+      [(cleanup* coin)]))
   [(:heads)]
 
 
@@ -323,11 +312,6 @@
 ;;
 ;; (defn necessarily [a b threshold])
 
-
-;;
-;; B - prototypes
-;;
-
 (defn non-sense [] (hd/->hv))
 
 ;; I think there is something deep about the concept that
@@ -348,14 +332,74 @@
   (mark-hyper #'non-sense)
   (mark-hyper #'create))
 
-
+;;
+;; A II - prototypes
+;;
+;;
+;;
 
 
 ;;
-;; C - analogies
+;; B - The means of combination
+;;
+;;
+
+(defn h-first [hsx]
+  (hd/unbind hsx (sequence-marker 0)))
+
+;; basically substitute the keys in the record with n - 1
+(defn h-rest [hsx]
+  (let
+      ;; that's what it boils down to anyway I think
+      [r (rest (unroll hsx))]
+    (->sequence r)))
+
+(defn pair [a b]
+  (->sequence [a b]))
+
+;; the primitives of key-value pairs
+
+(def bind hd/bind)
+(def inverse hd/inverse)
+(def unbind hd/unbind)
+(def release unbind)
+
+(defn ->struct [kvps])
+
+
+(do
+  (mark-hyper #'bind)
+  (mark-hyper #'inverse)
+  (mark-hyper #'unbind)
+  (mark-hyper #'release)
+  (mark-hyper #'h-first)
+  (mark-hyper #'h-rest)
+  (mark-hyper #'pair)
+  )
+
+
+
+(comment
+  (walk-cleanup (unroll (h-rest (pair (->prototype :a) (->prototype :b)))))
+  ;; (:b)
+
+  (cleanup* (h-first (h-rest (pair (->prototype :a) (->prototype :b)))))
+  ;; (:b)
+
+  )
+
+
+;;
+;; C - analogies / templates / frames
+;;
+;; the means of abstraction
 ;;
 ;; wip ...
 ;;
+
+(defn substitute [e k v])
+
+
 
 
 
@@ -368,6 +412,46 @@
 ;;
 ;; In hyperlisp, expressions are hypervectors
 ;;
+;; The evaluator
+;; -----------------------------------
+;;
+;; exp is a symbol: lookup in the environment
+;;
+;; exp is if: Evaluate the condition, lookup the condition in the clj memeory,
+;;            for each truthy branch, evaluate the consequence
+;;            fore each falsy branch, evaluate the alternative
+;;         evaluate to the superposition of the outcomes
+;;
+;; exp is let: Evaluate the bindings, augment the environment, evaluate the body
+;;
+;; exp is lambda: Return a hypervector that represents the lambda
+;;
+;; exp is a sequence: Evaluate the first element and treat it as a function
+;;                    Evaluate the rest of the elements and treat them as arguments
+;;
+;;
+;;             if the operator is a primitive, apply the primitive, with the clj values from cleanup memory
+;;             if the operator is hyper-fn, do not cleanup to clj, else the same
+;;
+;;                Do this with all 'argument branches' (cartisian product of possible arguments in this implementation)
+;;
+;;             if the operator is a lambda, evaluate the lambda
+;;
+;;               To eval a lambda:
+;;                 augment the environment with the parameters and arguments
+;;                 evaluate the body with the new environment
+;;
+;;             The result is the superposition of the outcomes
+;;
+;;
+;;
+;; if the exp is anything else, it evaluates to itself
+;;
+;;
+;;
+
+
+
 
 ;;
 ;; the *h-environment* could be a sparse distributed memory ?
@@ -520,6 +604,7 @@
                         ['lambda [] [+ 100 'b]]]]])))
   ;; (200 105)
 
+
   ;; redefine coin:
 
   (def coin-hyper
@@ -593,8 +678,21 @@
   ;; (20 50 15 -5)
 
   (cleanup* (h-eval (clj->vsa [[mix + - *] 10 10])))
+  (20 100 0)
+
 
   ;; (100 20 0)
+
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let ['outcome
+            [['lambda []
+              ['if [possibly true false]
+               :heads :tails]]]]
+      [impossibly 'outcome :tails]])))
+  (:heads)
 
 
   )
@@ -730,7 +828,10 @@
   ;; Alternatively,
   ;; could be 'known?'
   ;;
-  (when o true))
+  (if
+      (= :nothing o)
+      false
+      (when o true)))
 
 (defn eval-if
   ([exp] (eval-if exp *h-environment*))
@@ -826,17 +927,174 @@
                   (concat primitive-outcomes
                           compound-outcomes)))))))
 
+;;
+;;
+;; III. The reader
+;;
+;; This is for convinience.
+;;
+;;
+;; Clojure sets become a sumset (bundle).
+;;
+;; Clojure maps become a sumset of bound pairs.
+;;
+;;
 
-;; III. The hyperlambda
-;; λ
-;;
-;; hypervectors in hypervector out
-;;
-;;
-;; binding the env means
-;;
-;; making a superposition of `a` in the environment?
-;;
+(defn set-expr [exp]
+  (into [possibly] exp))
+
+(defn map-expr [exp]
+  (into
+   [mix]
+   (for [[k v] exp]
+     [bind k v])))
+
+(defn analyse-expression
+  [clj-exp]
+  (cond (set? clj-exp) (set-expr (map analyse-expression
+                                   clj-exp))
+        (map? clj-exp) (map-expr
+                         (map (fn [[k v]]
+                                [(analyse-expression k)
+                                 (analyse-expression v)])
+                           clj-exp))
+        (seqable? clj-exp)
+          (into [] (map analyse-expression clj-exp))
+        ;; guess I'm kludgin it up, but hey clj meta
+        ;; data and namespaces just let you do things
+        :else (let [hypersymbols
+                      (into
+                       {}
+                       (map
+                        #(update % 1 deref)
+                        (filter
+                         (fn [[sym v]]
+                           (when (var? v)
+                             (:hyper-fn (meta (deref v)))))
+                         (ns-map *ns*))))]
+                (or (hypersymbols clj-exp)
+                    clj-exp))))
+
+(defn h-read [clj-exp]
+  (clj->vsa (analyse-expression clj-exp)))
+
+(defmacro h-read-code
+  [code]
+  `(h-read '~code))
+
+(comment
+
+
+  (analyse-expression '#{a b c})
+  ;; [possibly a c b]
+
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['let ['a 10 'b 20]
+      (analyse-expression '#{a b})])))
+
+  (cleanup*
+   (hd/unbind
+    (h-eval (clj->vsa (analyse-expression {:a 10 :b 20})))
+    (->prototype :a)))
+  ;; (10)
+
+  (cleanup*
+   (hd/unbind
+    (h-eval (h-read {:a 100 :b 'lol}))
+    (->prototype :a)))
+  ;; (100)
+
+
+  (cleanup*
+   (hd/unbind
+    (h-eval
+     (h-read-code
+      {:a 100 :b lol}))
+    (clj->vsa :a)))
+
+
+  ;; (100)
+
+
+  (cleanup* (h-eval (h-read-code (let [a 100] a))))
+  ;; (100)
+
+  ;; ... is the same:
+  (cleanup*
+   (h-eval
+    (h-read '(let [a 100] a))))
+
+
+
+  ;; and it is hyperlisp:
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     (let [a 100]
+       (let [a 200]
+         a)))))
+  ;; (200 100)
+
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     (let [a 100]
+       (let [a 200]
+         (mix
+          (+ a a)
+          (* a a)))))))
+
+
+  ;; .. yay this is hyperlisp code now
+  (cleanup* (h-eval (h-read-code (mix :a :b))))
+  ;; (:b :a)
+
+
+
+  (analyse-expression '(let [a #{10 20} b {:a #{20 100}}]))
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     (let [a #{10 20}] a))))
+
+
+  ;; I discovered that in this configuration the elements of the possiblity mix
+  ;; become just thresholdy likely
+  ;;
+  ;; Then, it depends on the environment seed what the outcome is.
+  ;; Quite fascinating.
+  ;;
+  ;; Playing around with thresholds and 'perspectives' comes to mind as one of the next steps.
+  ;; Perhaps a mechanism might find a perpective vector that splits 2 concepts and so forth.
+  ;;
+
+  (def seed-with-3-outcomes seed)
+  (def seed-with-2-outcomes seed)
+  (def seed (hd/->seed))
+
+  ;; after I defined the seeds, the outcome is deterministic:
+
+  [(cleanup* (h-eval (h-read-code
+                      (let [a #{10 20} b :c] (possibly b a)))
+                     seed-with-3-outcomes))
+   (cleanup* (h-eval (h-read-code
+                      (let [a #{10 20} b :c] (possibly b a)))
+                     seed-with-2-outcomes))]
+
+  ;; [(:c 10 20) (:c 20)]
+
+
+
+
+
+  )
+
+
 
 
 
@@ -906,8 +1164,6 @@
   (hd/similarity
    (clj->vsa ['if :b :c])
    (clj->vsa [:a :b :c]))
-
-
 
 
   )
@@ -1130,29 +1386,3 @@
   ;; lava and water are not merely associated
   ;; perhaps they should be *the same*, given the right context
   )
-
-
-
-
-
-(comment
-  (let [a (hd/->hv)
-        b (hd/->hv)]
-    ;; then it is 50:50
-    [(hd/similarity a (mostly a b 1.0))
-     (hd/similarity b (mostly a b 1.0))])
-
-  (let [a (hd/->hv)
-        b (hd/->hv)]
-    ;; this is mostly a
-    [(hd/similarity a (mostly a b 0.5))
-     (hd/similarity b (mostly a b 0.5))])
-  [0.79 0.21]
-
-  ;; I guess 0.3 is at the limit of still being similar to b
-  (let [a (hd/->hv)
-        b (hd/->hv)]
-    ;; this is mostly a
-    [(hd/similarity a (mostly a b 0.3))
-     (hd/similarity b (mostly a b 0.3))])
-  [0.77 0.19])

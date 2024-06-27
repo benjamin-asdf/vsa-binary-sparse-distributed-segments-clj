@@ -225,6 +225,7 @@
 ;;
 
 (defn mix
+  ([a] a)
   ([a b & args] (hd/thin (apply f/+ a b args)))
   ([a b] (hd/thin (hd/bundle a b))))
 
@@ -308,7 +309,9 @@
 (def create non-sense)
 
 (defn make-hyper [op] (with-meta op {:hyper-fn true}))
-(defn mark-hyper [v] (alter-var-root v make-hyper))
+(defn mark-hyper [v]
+  (alter-meta! v assoc :hyper-fn true)
+  (alter-var-root v make-hyper))
 
 (do
   (mark-hyper #'mix)
@@ -992,37 +995,40 @@
   [clj-exp]
   (cond
     (set? clj-exp) (set-expr (map analyse-expression
-                               clj-exp))
-    (map? clj-exp)
-      (map-expr
-       (map (fn [[k v]] [(analyse-expression k)
-                         (analyse-expression v)])
-            clj-exp))
-    (and (list? clj-exp) (= 'let (first clj-exp)))
-      (list 'let
-            (into []
-                  (map analyse-expression (nth clj-exp 1)))
-            (analyse-expression (nth clj-exp 2)))
-    (and (list? clj-exp) (= 'lambda (first clj-exp)))
-      (list 'lambda
-            (into []
-                  (map analyse-expression (nth clj-exp 1)))
-            (analyse-expression (nth clj-exp 2)))
-    (vector? clj-exp) (vec-expr (map analyse-expression
                                   clj-exp))
-    (seqable? clj-exp)
-      (into [] (map analyse-expression clj-exp))
+    (map? clj-exp)
+    (map-expr (map (fn [[k v]] [(analyse-expression k)
+                                (analyse-expression v)])
+                   clj-exp))
+    (and (list? clj-exp) (= 'let (first clj-exp)))
+    (list 'let
+          (into []
+                (map analyse-expression (nth clj-exp 1)))
+          (analyse-expression (nth clj-exp 2)))
+    (and (list? clj-exp) (= 'lambda (first clj-exp)))
+    (list 'lambda
+          (into []
+                (map analyse-expression (nth clj-exp 1)))
+          (analyse-expression (nth clj-exp 2)))
+
+    (vector? clj-exp) (vec-expr (map analyse-expression
+                                     clj-exp))
+    (list? clj-exp)
+    (into [] (map analyse-expression clj-exp))
+
+
     ;; guess I'm kludgin it up, but hey clj meta
     ;; data and namespaces are simply amazing
     :else (let [hypersymbols
-                  (into {}
-                        (map #(update % 1 deref)
-                          (filter (fn [[sym v]]
-                                    (when (var? v)
-                                      (:hyper-fn
-                                        (meta (deref v)))))
-                            (ns-map *ns*))))]
-            (or (hypersymbols clj-exp) clj-exp))))
+                (into {}
+                      (filter
+                       (fn [[sym v]]
+                         (when (var? v)
+                           (:hyper-fn (meta v))))
+                       (ns-map *ns*)))]
+            (or
+             (hypersymbols clj-exp)
+             clj-exp))))
 
 (defn h-read [clj-exp]
   (clj->vsa (analyse-expression clj-exp)))
@@ -1031,10 +1037,9 @@
   [code]
   `(h-read '~code))
 
-(alter-meta! #'h-read (constantly {:foo :bar}))
-
-(meta #'h-read)
-(meta (first [h-read]))
+;; (alter-meta! #'h-read (constantly {:foo :bar}))
+;; (meta #'h-read)
+;; (meta (first [h-read]))
 
 (comment
 
@@ -1295,32 +1300,19 @@
                 (hd/->seed))]
       (h-apply p (first b)))
 
-
   (cleanup*
-   (hd/unbind
-    (h-eval
-     (h-read-code
-      ((lambda [it] {:foo it}) :bar))
-     (hd/->seed))
-    (clj->vsa :foo)))
-
-
-  (cleanup*
-   (hd/unbind
-    (h-eval
-     (h-read-code {:foo :bar})
-     (hd/->seed))
-    (clj->vsa :foo)))
-
-
-  (walk-cleanup (unroll (h-read-code {:foo :bar})))
-
-  ;; (#function[clojure.lang.AFunction/1] nil)
+   (hd/unbind (h-eval (h-read-code {:foo :bar})
+                      (hd/->seed))
+              (clj->vsa :foo)))
 
 
 
 
-  (analyse-expression {:foo :bar})
+
+
+
+
+
 
 
 

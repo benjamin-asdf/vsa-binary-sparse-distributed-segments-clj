@@ -177,38 +177,24 @@
 
 (defn clj->vsa
   [obj]
-  (cond (map? obj)
-        (->record
-         (map
-          (fn [[k v]]
-            [(clj->vsa k)
-             (clj->vsa v)])
-          obj))
-
+  (cond (map? obj) (->record (map (fn [[k v]] [(clj->vsa k)
+                                               (clj->vsa
+                                                 v)])
+                               obj))
         (or
          (list? obj)
          (vector? obj))
-
-        ;; you need to make a decision about
-        ;; how to deal with the empty sequence
-
-        (if
-            (empty? obj)
+          ;; you need to make a decision about
+          ;; how to deal with the empty sequence
+          (if (empty? obj)
             (->prototype :nothing)
-
             (apply ->sequence (map clj->vsa obj)))
-
         (hd/hv? obj) obj
-
         ;; there would be alternative ways to do this
         ;; (symbol? obj) (clj->vsa {:symbol
         ;; (->prototype obj)})
         ;; (symbol? obj) (->prototype obj)
-
         :else (->prototype obj)))
-
-
-
 
 (defn unroll
   [hxs]
@@ -484,6 +470,7 @@
 (defn let? [exp] (= 'let (start-symbol exp)))
 (defn lambda? [exp] (= 'lambda (start-symbol exp)))
 (defn if? [exp] (= 'if (start-symbol exp)))
+(defn branch? [exp] (= 'branch (start-symbol exp)))
 
 (defn augment-environment
   "Returns a new environment with a binding for k->v added."
@@ -859,6 +846,47 @@
                       (h-eval (if-alternative exp)
                               env)))))))))
 
+(defn
+  branch->antecedent
+  [exp]
+  (known (h-nth exp 1)))
+
+(defn
+  branch->postcedent
+  [exp]
+  (known (h-nth exp 1)))
+
+;; do you return a sequence of outcomes?
+;; or a superposition of outcomes?
+
+(defn
+  eval-branch
+  [exp env]
+  (let [antecedent (h-eval
+                    (branch->antecedent exp)
+                    env)
+        postcedent (h-eval
+                    (branch->postcedent exp))
+        collapsed-branches
+        (lookup*
+         auto-a-memory
+         antecedent
+         ;; dynamic threshold would be interesting
+         0.1)]
+    [collapsed-branches
+     antecedent
+     postcedent
+     ]
+    ;; (hd/thin
+    ;;  (apply
+    ;;   hd/bundle
+    ;;   (for
+    ;;       [collapsed collapsed-branches]
+    ;;       (h-apply
+    ;;        postcedent
+    ;;        collapsed
+    ;;        env))))
+    ))
 
 (defn h-eval
   ([exp] (h-eval exp (or *h-environment* (non-sense))))
@@ -872,14 +900,15 @@
      ;; hdv
      ;;
      ;;
+     (branch? exp) (eval-branch exp env)
      (lambda? exp) (eval-lambda exp env)
      (if? exp) (eval-if exp env)
      (let? exp) (eval-let exp env)
      (h-seq? exp)
-       (let [lst (unroll exp)]
-         (h-apply (h-eval (first lst) env)
-                  (into [] (map #(h-eval % env) (rest lst)))
-                  env))
+     (let [lst (unroll exp)]
+       (h-apply (h-eval (first lst) env)
+                (into [] (map #(h-eval % env) (rest lst)))
+                env))
      (variable? exp) (lookup-variable exp env)
      ;; (self-evaluating? exp)
      :else exp)))
@@ -926,7 +955,7 @@
            (doall (map #(eval-compound-procedure %
                                                  arguments)
                     (filter compound-procedure?
-                      (lookup* auto-a-memory op 0.3))))]
+                            (lookup* auto-a-memory op 0.3))))]
      (if-not (seq (concat primitive-outcomes
                           compound-outcomes))
        ;; guess that's an error
@@ -961,29 +990,39 @@
 
 (defn analyse-expression
   [clj-exp]
-  (cond (set? clj-exp) (set-expr (map analyse-expression
-                                   clj-exp))
-        (map? clj-exp) (map-expr
-                         (map (fn [[k v]]
-                                [(analyse-expression k)
-                                 (analyse-expression v)])
-                           clj-exp))
-        (vector? clj-exp) (vec-expr (map analyse-expression
-                                      clj-exp))
-        (seqable? clj-exp)
-          (into [] (map analyse-expression clj-exp))
-        ;; guess I'm kludgin it up, but hey clj meta
-        ;; data and namespaces are simply amazing
-        :else (let [hypersymbols
-                      (into {}
-                            (map #(update % 1 deref)
-                              (filter (fn [[sym v]]
-                                        (when (var? v)
-                                          (:hyper-fn
-                                            (meta (deref
-                                                    v)))))
-                                (ns-map *ns*))))]
-                (or (hypersymbols clj-exp) clj-exp))))
+  (cond
+    (set? clj-exp) (set-expr (map analyse-expression
+                               clj-exp))
+    (map? clj-exp)
+      (map-expr
+       (map (fn [[k v]] [(analyse-expression k)
+                         (analyse-expression v)])
+            clj-exp))
+    (and (list? clj-exp) (= 'let (first clj-exp)))
+      (list 'let
+            (into []
+                  (map analyse-expression (nth clj-exp 1)))
+            (analyse-expression (nth clj-exp 2)))
+    (and (list? clj-exp) (= 'lambda (first clj-exp)))
+      (list 'lambda
+            (into []
+                  (map analyse-expression (nth clj-exp 1)))
+            (analyse-expression (nth clj-exp 2)))
+    (vector? clj-exp) (vec-expr (map analyse-expression
+                                  clj-exp))
+    (seqable? clj-exp)
+      (into [] (map analyse-expression clj-exp))
+    ;; guess I'm kludgin it up, but hey clj meta
+    ;; data and namespaces are simply amazing
+    :else (let [hypersymbols
+                  (into {}
+                        (map #(update % 1 deref)
+                          (filter (fn [[sym v]]
+                                    (when (var? v)
+                                      (:hyper-fn
+                                        (meta (deref v)))))
+                            (ns-map *ns*))))]
+            (or (hypersymbols clj-exp) clj-exp))))
 
 (defn h-read [clj-exp]
   (clj->vsa (analyse-expression clj-exp)))
@@ -992,8 +1031,14 @@
   [code]
   `(h-read '~code))
 
+(alter-meta! #'h-read (constantly {:foo :bar}))
+
+(meta #'h-read)
+(meta (first [h-read]))
+
 (comment
 
+  (seqable? 'it)
 
   (analyse-expression '#{a b c})
   ;; [possibly a c b]
@@ -1024,9 +1069,7 @@
       {:a 100 :b lol}))
     (clj->vsa :a)))
 
-
   ;; (100)
-
 
   (cleanup* (h-eval (h-read-code (let [a 100] a))))
   ;; (100)
@@ -1035,8 +1078,6 @@
   (cleanup*
    (h-eval
     (h-read '(let [a 100] a))))
-
-
 
   ;; and it is hyperlisp:
 
@@ -1047,7 +1088,6 @@
        (let [a 200]
          a)))))
   ;; (200 100)
-
 
   (cleanup*
    (h-eval
@@ -1109,34 +1149,51 @@
    (h-eval
     (h-read-code
      (let [a [1 2 3]]))))
-
   )
 
-
-
-
-
-
 (comment
-  (cleanup* (h-apply (->prototype +)
-                     (unroll (clj->vsa (into [] (range 3))))))
+  (cleanup*
+   (h-apply
+    (->prototype +)
+    (unroll
+     (clj->vsa (into [] (range 3))))))
   ;; (3)
-
   3
-  (cleanup* (h-apply (mix1 + -) (unroll (clj->vsa [1 2 3]))))
+  (cleanup*
+   (h-apply
+    (mix1 + -)
+    (unroll (clj->vsa [1 2 3]))))
   ;; (6 -4)
   ;; (-4 6)
-  (cleanup* (h-eval (mix1 10 20)))
+  (cleanup*
+   (h-eval (mix1 10 20)))
   ;; (10 20)
-
-  (cleanup* (h-eval (clj->vsa ['if true 30 :bananas])))
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['if true 30 :bananas])))
   ;; (30)
-
-  (cleanup* (h-eval (clj->vsa ['if (mix1 10 20) 30 :bananas])))
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['if (mix1 10 20) 30 :bananas])))
   ;; (30)
-
-  (cleanup* (h-eval (clj->vsa ['if (mix1 10 false) 30 :bananas])))
+  (cleanup*
+   (h-eval
+    (clj->vsa
+     ['if
+      (mix1 10 false)
+      30
+      :bananas])))
   ;; (30 :bananas)
+
+  (seq? (list 1 2 3))
+  (seq? [1 2 3])
+  (seqable? [1 2 3])
+  (seqable? "fo")
+
+
+
 
   )
 
@@ -1176,31 +1233,97 @@
 
   (hd/similarity (mix1 f1 f2) (->prototype f1))
 
-
   ;; this code is similar...
 
   (hd/similarity
    (clj->vsa ['if :b :c])
-   (clj->vsa [:a :b :c]))
-
-
-  )
-
+   (clj->vsa [:a :b :c])))
 
 (comment
-
   ;; => (6)
-  (h-eval (clj->vsa [(mix1 - +) 1 2 3]))
+  (h-eval
+   (clj->vsa [(mix1 - +) 1 2 3]))
   ;; => (6 -4)
-  (h-eval (clj->vsa [+ 1 2 (mix1 3 30)]))
+  (h-eval
+   (clj->vsa [+ 1 2 (mix1 3 30)]))
   ;; => (6, 33)
-
   (cleanup*
    (h-eval
     (clj->vsa
      ['if [mix true false] :a :b])
     (create)))
   ;; (:b :a)
+  )
+
+(comment
+  (h-read-code {:seed :tree})
+
+  (hd/bind
+   (hd/->seed)
+   (hd/->seed))
+
+
+
+  (h-read-code {:seed {:ergo :tree}})
+
+  ;; hyperlisps 'collapse' primitive 'branch'
+  ;; looks up e in the associative memory,
+  ;; branch function is called called for each known hdv
+  ;;
+  ;; So 'certainty' and branching are 2 sides of the same coin
+  ;;
+  ;; Or 'measurement'
+
+
+  (cleanup*
+   (hd/unbind
+    (h-eval
+     (h-read-code
+      (branch
+       (mix :a :b)
+       (fn [it] {:foo it})))
+     (hd/->seed))
+    (clj->vsa :foo)))
+
+
+  (let
+      [[b a p] (h-eval
+                (h-read-code
+                 (branch
+                  (mix :a :b)
+                  (lambda [it] {:foo it})))
+                (hd/->seed))]
+      (h-apply p (first b)))
+
+
+  (cleanup*
+   (hd/unbind
+    (h-eval
+     (h-read-code
+      ((lambda [it] {:foo it}) :bar))
+     (hd/->seed))
+    (clj->vsa :foo)))
+
+
+  (cleanup*
+   (hd/unbind
+    (h-eval
+     (h-read-code {:foo :bar})
+     (hd/->seed))
+    (clj->vsa :foo)))
+
+
+  (walk-cleanup (unroll (h-read-code {:foo :bar})))
+
+  ;; (#function[clojure.lang.AFunction/1] nil)
+
+
+
+
+  (analyse-expression {:foo :bar})
+
+
+
 
 
   )

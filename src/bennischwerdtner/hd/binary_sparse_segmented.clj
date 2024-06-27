@@ -865,8 +865,7 @@
         b (->hv)]
     [(similarity a (thin (bundle a (weaken b 0.5))))
      (similarity a (thin (bundle a b)))])
-  [0.76 0.58]
-  )
+  [0.76 0.58])
 
 
 

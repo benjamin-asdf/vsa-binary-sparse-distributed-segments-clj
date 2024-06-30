@@ -194,7 +194,7 @@
 ;; Each of the bits in the output models 1 Purkinje cell (output cell)
 ;;
 
-(defn read
+(defn sdm-read
   [content-matrix address-locations word-lenght
    word-segment-length word-segment-count]
   ;; depends on U (the width of the content matrix) ==
@@ -252,7 +252,7 @@
 
   (hd/similarity
    a
-   (read C
+   (sdm-read C
          (decode-addresses A a decoder-threshold)
          word-length
          (:bsdc-seg/segment-length hd/default-opts)
@@ -274,7 +274,7 @@
        (let [sim
              (hd/similarity
               d
-              (read C
+              (sdm-read C
                     (decode-addresses A d decoder-threshold)
                     word-length
                     (:bsdc-seg/segment-length hd/default-opts)
@@ -299,7 +299,7 @@
 
   (defn read-word
     [a]
-    (read C
+    (sdm-read C
           (decode-addresses A a decoder-threshold)
           word-length
           (:bsdc-seg/segment-length hd/default-opts)

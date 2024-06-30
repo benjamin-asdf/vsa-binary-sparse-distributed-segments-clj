@@ -217,7 +217,6 @@
        (if (hd/hv? e) (cleanup-lookup-value e) (map f e)))]
     (map f form)))
 
-
 ;;
 ;; A - Ambiguity primitives
 ;;
@@ -396,10 +395,6 @@
 
 (defn substitute [e k v])
 
-
-
-
-
 ;;
 ;; I
 ;;
@@ -446,8 +441,6 @@
 ;;
 ;;
 ;;
-
-
 
 
 ;;
@@ -498,9 +491,6 @@
                  bindings))
              env)]
      (h-eval body new-env))))
-
-
-
 
 (comment
   ;; let makes an environment, the evaluator looks up what is bound
@@ -793,7 +783,6 @@
            (hd/->hv)
            kvps)))
 
-
 ;; II
 ;;
 ;; ======================
@@ -1035,9 +1024,6 @@
 ;; (meta (first [h-read]))
 
 (comment
-
-  (seqable? 'it)
-
   (analyse-expression '#{a b c})
   ;; [possibly a c b]
 
@@ -1146,8 +1132,7 @@
   (cleanup*
    (h-eval
     (h-read-code
-     (let [a [1 2 3]]))))
-  )
+     (let [a [1 2 3]])))))
 
 (comment
   (cleanup*
@@ -1188,30 +1173,22 @@
   (seq? (list 1 2 3))
   (seq? [1 2 3])
   (seqable? [1 2 3])
-  (seqable? "fo")
-
-
-
-
-  )
-
+  (seqable? "fo"))
 
 (comment
   (cleanup* (h-eval (clj->vsa [+ 20 5])))
   ;; (25)
+
   (cleanup*
    (h-eval (clj->vsa [(fn [a b]
                         (+ (inc a) b)) 20 5])))
   ;; (26)
-
-
   (cleanup*
    (h-eval (clj->vsa [(mix1
                        (fn [a b] (+ (inc a) b))
                        (fn [a b] (+ a a)))
                       20 5])))
   ;; (40 26)
-
 
   ;; to drive this home:
 
@@ -1232,7 +1209,6 @@
   (hd/similarity (mix1 f1 f2) (->prototype f1))
 
   ;; this code is similar...
-
   (hd/similarity
    (clj->vsa ['if :b :c])
    (clj->vsa [:a :b :c])))
@@ -1254,16 +1230,6 @@
   )
 
 (comment
-  (h-read-code {:seed :tree})
-
-  (hd/bind
-   (hd/->seed)
-   (hd/->seed))
-
-
-
-  (h-read-code {:seed {:ergo :tree}})
-
   ;; hyperlisps 'collapse' primitive 'branch'
   ;; looks up e in the associative memory,
   ;; branch function is called called for each known hdv
@@ -1271,7 +1237,6 @@
   ;; So 'certainty' and branching are 2 sides of the same coin
   ;;
   ;; Or 'measurement'
-
 
   (cleanup*
    (hd/unbind
@@ -1283,36 +1248,10 @@
      (hd/->seed))
     (clj->vsa :foo)))
 
-
-
-
   (cleanup*
    (hd/unbind (h-eval (h-read-code {:foo :bar})
                       (hd/->seed))
               (clj->vsa :foo)))
-
-
-
-
-
-
-
-  (cleanup*
-   (hd/unbind
-
-    (let [[b a p] (h-eval (h-read-code
-                           (branch (mix :a :b)
-                                   (lambda [it] {:foo it})))
-                          (hd/->seed))]
-      (procedure->environment p)
-      (h-apply
-       p
-       [(first b)]
-       (hd/->seed)))
-    (clj->vsa :foo)))
-
-
-
 
 
   ;; ----------------------
@@ -1337,7 +1276,6 @@
   ;; (20 10)
   ;; .. this does the same thing basically atm
 
-
   (cleanup*
    (hd/unbind
     (h-eval
@@ -1346,6 +1284,92 @@
     (clj->vsa :foo)))
   ;; (:a :b)
 
-
-
   )
+
+(comment
+
+  (def spread-butter
+    (h-read-code
+     (lambda
+      (bread butter)
+      {:bread bread
+       :butter butter})))
+
+  (def output (h-eval (clj->vsa
+                       [spread-butter :bread :honey])))
+
+  (cleanup*
+   (hd/unbind output (clj->vsa :butter)))
+  ;; (:honey)
+  )
+
+(comment
+  (def seed+water->plant
+    '(lambda
+      (seed water kind)
+      {:plant kind}))
+
+  (do
+    (defn ergo [antecedent postcedent]
+      (bind antecedent postcedent))
+    (mark-hyper #'ergo))
+
+  (h-read-code (ergo (mix :seed :water) :plant))
+
+  (cleanup*
+   (hd/unbind
+    (h-eval (h-read-code (ergo (mix :seed :water) :plant)))
+    (hd/unbind
+     (hd/unbind
+      (h-eval (h-read-code
+               {:seed :seed-a :water :water}))
+      (clj->vsa :seed-a))
+     (clj->vsa :water))))
+
+  (let [m (h-eval (h-read-code
+                   {:a 10 :b 20}))]
+    (cleanup*
+     (hd/unbind m (hd/bundle
+                   (clj->vsa :a)
+                   (clj->vsa :b)))))
+
+
+  (let [m (h-eval (h-read-code
+                   (ergo (mix :a :b) :c)))]
+    (cleanup*
+     (hd/unbind m
+                (hd/bundle
+                 (clj->vsa :a)
+                 (clj->vsa :b)))))
+  ;; (:c)
+
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     (release
+      (ergo (mix :seed :water) :plant)
+      (mix :seed :water)))))
+  ;; (:plant)
+
+  (cleanup-lookup-verbose
+   (h-eval
+    (h-read-code
+     (release
+      (ergo (mix :seed :water) :plant)
+      (mix :seed)))))
+
+  (cleanup-lookup-verbose
+   (h-eval
+    (h-read-code
+     (release
+      (ergo (mix :seed :water) :plant)
+      (mix :seed :water)))))
+
+  (cleanup-lookup-verbose
+   (h-eval
+    (h-read-code
+     (let [water :water]
+       (release
+        (ergo (mix :seed :water) :plant)
+        (mix water :seed)))))))

@@ -4,7 +4,6 @@
    [clojure.test :as t]
    [tech.v3.datatype.functional :as f]
    [tech.v3.parallel.for :as pf]
-   [tec]
    [tech.v3.tensor :as dtt]
    [tech.v3.datatype.bitmap :as bitmap]
    [fastmath.random :as fm.rand]
@@ -102,7 +101,6 @@
 ;; L - (L = 100, 1 per segment) the number of ones in the address
 ;;
 
-
 (defn decode-addresses
   [address-matrix address decoder-threshold]
   ;; d
@@ -183,17 +181,19 @@
       (dtt/mset! C l row))
     C))
 
-(defn auto-associate!
-  [C A input-word decoder-threshold]
-  (write! C
-          (decode-addresses A input-word decoder-threshold)
-          input-word))
+(comment
+  (write! (dtt/->tensor [[0 0 0] [0 0 0]]) [0] [0 0 1])
+  ;; [[0 0 1]
+  ;;  [0 0 0]]
+  )
+
 
 ;; 1. sum up the address location bits of activated rows
 ;; 2. For each segment of the output word, take the highest bit
 ;;
 ;; Each of the bits in the output models 1 Purkinje cell (output cell)
 ;;
+
 (defn read
   [content-matrix address-locations word-lenght
    word-segment-length word-segment-count]
@@ -211,17 +211,23 @@
     ;; from the indices
     (hd/indices->hv indices)))
 
-
 ;; N = 10000 (word length).
 ;; L = 100 (word non zero bits count).
 ;; segment-length = 100 (words are segmented, 1 non-zero bit per segment).
 
 (defn ->word [] (hd/->hv))
 
+(defn auto-associate!
+  [C A input-word decoder-threshold]
+  (write!
+   C
+   (decode-addresses A input-word decoder-threshold)
+   input-word))
+
 (comment
   (def word-length (:bsdc-seg/N hd/default-opts))
   (def address-length word-length)
-  (def address-count 10000)
+  (def address-count 1e4)
   (def address-density-k 6)
   ;; G
   (def decoder-threshold 2)
@@ -239,6 +245,10 @@
   ;; (decode-addresses A a address-density-k)
 
   (time (auto-associate! C A a decoder-threshold))
+  (write!
+   C
+   (decode-addresses A a decoder-threshold)
+   a)
 
   (hd/similarity
    a
@@ -257,7 +267,6 @@
    (doseq
        [d T]
        (auto-associate! C A d decoder-threshold)))
-
 
   (doall
    (for
@@ -294,26 +303,7 @@
           (decode-addresses A a decoder-threshold)
           word-length
           (:bsdc-seg/segment-length hd/default-opts)
-          (:bsdc-seg/segment-count hd/default-opts)))
-
-  (let [a-prime
-        (hd/thin (hd/bundle a (hd/->seed)))
-        a2 (read-word a-prime)]
-    (def a-prime a-prime)
-    (hd/similarity a (read-word a2)))
-
-  (clojure.set/intersection
-   (into #{} (decode-addresses A a-prime decoder-threshold))
-   (into #{} (decode-addresses A a decoder-threshold)))
-
-  (hd/maximally-sparse? (read-word a))
-
-  (auto-associate! C A a decoder-threshold)
-
-  (map
-   (fn [a b] [a b (= a b)])
-   (hd/hv->indices (read-word a))
-   (hd/hv->indices a)))
+          (:bsdc-seg/segment-count hd/default-opts))))
 
 
 (comment
@@ -367,11 +357,4 @@
   (dice-throw-probability 6 2 100 1)
   0.001440894015
 
-  )
-
-
-(comment
-  (write! (dtt/->tensor [[0 0 0] [0 0 0]]) [0] [0 0 1])
-  ;; [[0 0 1]
-  ;;  [0 0 0]]
   )

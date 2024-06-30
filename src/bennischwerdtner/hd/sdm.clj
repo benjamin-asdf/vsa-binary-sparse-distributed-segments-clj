@@ -101,15 +101,21 @@
 ;; granule cells -> purkinje cells is 100k out of billions
 
 ;; N - word length
-;; M - count hard address locations (memory size)
+;; M - count hard address locations (memory size) e.g. 1.000.000
 
 ;; T - Training size e.g. 10.000
 ;;
 ;; p - probability of activation (depends on implementation)
-;; "ideally" 2MT^1/3
+;; "ideally" 2MT^-1/3
 ;; e.g. 0.000445
 
 ;; H - radius of activation e.g. Hamming 447
+
+(comment
+  ;; I don't really get how they get 0.000445
+  (Math/pow (* 2 1e6 1e4) (/ -1 3))
+  3.684031498640388E-4)
+
 
 (def activation-radius-hamming 447)
 (def counter-range [-15 15])
@@ -157,27 +163,6 @@
                           activation-radius-hamming)]
     ;; (dtt/->tensor activations {:datatype :int8})
     (unary-pred/bool-reader->indexes activations)))
-
-
-
-;; Alternative:
-;; instread of fixed threshold, a cap-k using p*M
-;;
-(defn decode-addresses-cap-k
-  [address-matrix address k]
-  ;; d
-  (let [hamming-distances (dtt/reduce-axis
-                           address-matrix
-                           #(hamming-dist % address))
-        ;; y
-        ;; but sorting 10k items is slow
-        activations
-        (take k (dtype-argops/argsort hamming-distances))]
-    (bitmap/->bitmap activations)))
-
-
-
-
 
 
 
@@ -294,67 +279,23 @@
       (dtt/mset! C l row))
     C))
 
-
-
-
-
 (comment
   (def word-length 1000)
-  (def address-count 10000)
+  ;; needs to be large
+  ;; (def address-count (long 1e6))
   (def A (->address-matrix word-length address-count 0.5))
   (def C (->content-matrix word-length address-count))
   (def T (into [] (repeatedly 100 #(->word word-length))))
-
-
-  (decode-addresses
-   A
-   a
-   activation-radius-hamming)
-
-
-
-
-
 
   (def hamming-dists
     (into [] (for [test-data T]
                (let [a test-data
                      _ (def a a)
                      C (write! C (decode-addresses A a activation-radius-hamming) a)
-                     ;; output (read C (decode-addresses A a activation-radius-hamming))
+                     output (read C (decode-addresses A a activation-radius-hamming))
                      ]
-                 ;; (hamming-dist a output)
-                 )))))
+                 (hamming-dist a output)))))
 
 
 
-(comment
-  (def word-length 1000)
-  (def address-count 10000)
-  (def A (->address-matrix word-length address-count 0.5))
-  (def C (->content-matrix word-length address-count))
-  (def T (into [] (repeatedly 100 #(->word word-length))))
-
-  (time (decode-addresses-cap-k
-         A
-         a
-         ;; p
-         ;; (Math/ceil (* address-count 0.000445))
-         5))
-
-
-
-
-
-
-
-
-  (def hamming-dists
-    (into [] (for [test-data T]
-               (let [a test-data
-                     _ (def a a)
-                     C (write! C (decode-addresses A a activation-radius-hamming) a)
-                     ;; output (read C (decode-addresses A a activation-radius-hamming))
-                     ]
-                 ;; (hamming-dist a output)
-                 )))))
+  )

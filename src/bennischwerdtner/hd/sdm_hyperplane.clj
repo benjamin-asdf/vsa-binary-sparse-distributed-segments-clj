@@ -20,14 +20,11 @@
 ;; Ames Research Center.
 
 
-(def activation-radius-hamming 447)
 (def counter-range [-15 15])
 
-;;
-;; address-density is 0.5 here, this is sparse in hyperplane design (Jaeckle),
-;; where k = 10, N = 1000, p = 0.5^k, p = 0.001
-;;
-
+;; -------------------
+;; Address Matrix A
+;; -------------------
 
 ;; in hyperplane design, each row has 3 (k = 3) ones and (N - k = 997) zeros
 
@@ -39,18 +36,17 @@
    address-density-k]
   (let [ones (into []
                    (repeatedly
-                     hard-address-location-count
-                     (fn []
-                       (into #{}
-                             (take address-density-k
-                                   (shuffle
-                                     (range
-                                       word-length)))))))]
-    (def ones ones)
+                    hard-address-location-count
+                    (fn []
+                      (into #{}
+                            (take address-density-k
+                                  (shuffle
+                                   (range
+                                    word-length)))))))]
     (dtype/clone (dtt/compute-tensor
-                   [hard-address-location-count word-length]
-                   (fn [i j] (if ((ones i) j) 1 0))
-                   :int8))))
+                  [hard-address-location-count word-length]
+                  (fn [i j] (if ((ones i) j) 1 0))
+                  :int8))))
 
 
 
@@ -151,7 +147,6 @@
                          0))
    {:datatype :int8}))
 
-;; 50% 0 and 1
 ;; addresses are skewed,
 ;; e.g. L = 100
 ;; N = 1000
@@ -165,106 +160,3 @@
      boolean
      (into #{} (take L (shuffle (range N)))))
     :int8)))
-
-(comment
-
-  (def A (->address-matrix 100 100 0.5))
-  (dtt/reduce-axis (dtt/->tensor [[0 0 1] [0 1 1]]) f/sum)
-  (f/<= 1 [0 1])
-
-  (dtt/reduce-axis
-   [[1 0 1 0] [0 1 1 0]]
-   #(hamming-dist % [0 0 0 0]))
-
-  (decode-addresses
-   ;; A
-   [[1 0 1 0]
-    [1 0 1 0]
-    [1 0 1 0]
-    [0 1 1 0]]
-   ;; x (address)
-   [0 1 0 1]
-   ;; dist
-   3)
-
-  (write
-   ;; C
-   [[0 0]
-    [0 0]]
-   ;; addr locations
-   [1 1]
-   ;; input word
-   [0 1]
-   )
-
-
-  (let [C (dtt/->tensor [[0 1 0] [0 1 0] [0 3 2]])
-        input-word [0 0 1]
-        input-update (f/- (f/* input-word 2) 1)
-        address-locations [0 1]
-        updated-rows (dtt/map-axis
-                      (dtt/select C address-locations)
-                      (fn [row] (f/+ row input-update))
-                      1)]
-    (doseq [l address-locations
-            row updated-rows]
-      (dtt/mset! C l row))
-    C))
-
-(comment
-  (do
-    (def word-length 1000)
-    (def word-density-l 100)
-    (def address-count 10000)
-    (def address-density-k 3)
-    (def A
-      (->address-matrix word-length address-count 3))
-
-    (def C (->content-matrix word-length address-count))
-    (def a (->word word-length word-density-l))
-    ;; (decode-addresses A a address-density-k)
-
-    (hamming-dist
-     (read C (decode-addresses A a address-density-k))
-     a)
-
-    (def T
-      (into [] (map (fn [_] (->word word-length word-density-l))) (range 100))))
-
-  (time
-   (doseq
-       [d T]
-       (write! C (decode-addresses A d address-density-k) d)))
-
-
-
-  (hamming-dist
-   (read C (decode-addresses A (first T) address-density-k))
-   (first T)))
-
-
-
-
-(comment
-  (def word-length 1000)
-  (def address-count 10000)
-  (def A (->address-matrix word-length address-count 0.5))
-  (def C (->content-matrix word-length address-count))
-  (def T (into [] (repeatedly 100 #(->word word-length))))
-
-  (time (decode-addresses-cap-k
-         A
-         a
-         ;; p
-         ;; (Math/ceil (* address-count 0.000445))
-         5))
-
-  (def hamming-dists
-    (into [] (for [test-data T]
-               (let [a test-data
-                     _ (def a a)
-                     C (write! C (decode-addresses A a activation-radius-hamming) a)
-                     ;; output (read C (decode-addresses A a activation-radius-hamming))
-                     ]
-                 ;; (hamming-dist a output)
-                 )))))

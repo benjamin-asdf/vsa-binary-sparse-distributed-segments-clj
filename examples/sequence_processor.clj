@@ -768,7 +768,7 @@
 (defn eval-compound-procedure
   [proc arguments]
   (let [new-env (extend-environment
-                (procedure->parameters proc)
+                 (procedure->parameters proc)
                 arguments
                 ;; this can be nil, then every thing
                 ;; is free variables
@@ -857,39 +857,27 @@
 (defn
   branch->postcedent
   [exp]
-  (known (h-nth exp 1)))
+  (known (h-nth exp 2)))
 
 ;; do you return a sequence of outcomes?
 ;; or a superposition of outcomes?
 
-(defn
-  eval-branch
+(defn eval-branch
   [exp env]
-  (let [antecedent (h-eval
-                    (branch->antecedent exp)
-                    env)
-        postcedent (h-eval
-                    (branch->postcedent exp))
-        collapsed-branches
-        (lookup*
-         auto-a-memory
-         antecedent
-         ;; dynamic threshold would be interesting
-         0.1)]
-    [collapsed-branches
-     antecedent
-     postcedent
-     ]
-    ;; (hd/thin
-    ;;  (apply
-    ;;   hd/bundle
-    ;;   (for
-    ;;       [collapsed collapsed-branches]
-    ;;       (h-apply
-    ;;        postcedent
-    ;;        collapsed
-    ;;        env))))
-    ))
+  (let [antecedent (h-eval (branch->antecedent exp) env)
+        postcedent (h-eval (branch->postcedent exp))
+        collapsed-branches (lookup* auto-a-memory
+                                    antecedent
+                                    ;; dynamic threshold
+                                    ;; would be
+                                    ;; interesting
+                                    0.1)]
+    ;; [collapsed-branches
+    ;;  antecedent
+    ;;  postcedent]
+    (hd/thin (apply hd/bundle
+               (for [collapsed collapsed-branches]
+                 (h-apply postcedent [collapsed] env))))))
 
 (defn h-eval
   ([exp] (h-eval exp (or *h-environment* (non-sense))))
@@ -1005,11 +993,16 @@
           (into []
                 (map analyse-expression (nth clj-exp 1)))
           (analyse-expression (nth clj-exp 2)))
+
     (and (list? clj-exp) (= 'lambda (first clj-exp)))
     (list 'lambda
           (into []
                 (map analyse-expression (nth clj-exp 1)))
           (analyse-expression (nth clj-exp 2)))
+
+
+    (and (list? clj-exp) (= 'fn (first clj-exp)))
+    (eval clj-exp)
 
     (vector? clj-exp) (vec-expr (map analyse-expression
                                      clj-exp))
@@ -1291,14 +1284,7 @@
     (clj->vsa :foo)))
 
 
-  (let
-      [[b a p] (h-eval
-                (h-read-code
-                 (branch
-                  (mix :a :b)
-                  (lambda [it] {:foo it})))
-                (hd/->seed))]
-      (h-apply p (first b)))
+
 
   (cleanup*
    (hd/unbind (h-eval (h-read-code {:foo :bar})
@@ -1311,10 +1297,54 @@
 
 
 
+  (cleanup*
+   (hd/unbind
+
+    (let [[b a p] (h-eval (h-read-code
+                           (branch (mix :a :b)
+                                   (lambda [it] {:foo it})))
+                          (hd/->seed))]
+      (procedure->environment p)
+      (h-apply
+       p
+       [(first b)]
+       (hd/->seed)))
+    (clj->vsa :foo)))
 
 
 
 
+
+  ;; ----------------------
+  ;; collapse primitives
+  ;; ----------------------
+
+  (cleanup*
+   (hd/unbind
+    (h-eval (h-read-code
+             (branch (mix :a :b)
+                     (lambda [it] {:foo it})))
+            (hd/->seed))
+    (clj->vsa :foo)))
+  ;; (:b :a)
+
+
+  ;; maybe apply is sufficient for a branch primitive though:
+  (cleanup*
+   (h-eval
+    (h-read-code
+     ((fn [it] it) (mix 10 20)))))
+  ;; (20 10)
+  ;; .. this does the same thing basically atm
+
+
+  (cleanup*
+   (hd/unbind
+    (h-eval
+     (h-read-code
+      ((fn [it] {:foo it}) (mix :a :b))))
+    (clj->vsa :foo)))
+  ;; (:a :b)
 
 
 

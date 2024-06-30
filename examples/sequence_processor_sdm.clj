@@ -2,7 +2,7 @@
 ;; just experiments
 ;;
 
-(ns sequence-processor
+(ns sequence-processor-sdm
   (:require
    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
    [tech.v3.datatype :as dtype]
@@ -15,7 +15,7 @@
 ;; quick associative memory
 (defprotocol AssociativeAddressableMemory
   (lookup [this query-v]
-          [this query-v threshold])
+    [this query-v threshold])
   (lookup* [this query-v]
            [this query-v threshold])
   (store [this v])
@@ -850,6 +850,7 @@
 
 ;; do you return a sequence of outcomes?
 ;; or a superposition of outcomes?
+
 (defn eval-branch
   [exp env]
   (let [antecedent (h-eval (branch->antecedent exp) env)
@@ -988,6 +989,7 @@
                 (map analyse-expression (nth clj-exp 1)))
           (analyse-expression (nth clj-exp 2)))
 
+
     (and (list? clj-exp) (= 'fn (first clj-exp)))
     (eval clj-exp)
 
@@ -995,6 +997,7 @@
                                      clj-exp))
     (list? clj-exp)
     (into [] (map analyse-expression clj-exp))
+
 
     ;; guess I'm kludgin it up, but hey clj meta
     ;; data and namespaces are simply amazing
@@ -1015,6 +1018,10 @@
 (defmacro h-read-code
   [code]
   `(h-read '~code))
+
+;; (alter-meta! #'h-read (constantly {:foo :bar}))
+;; (meta #'h-read)
+;; (meta (first [h-read]))
 
 (comment
   (analyse-expression '#{a b c})
@@ -1120,7 +1127,12 @@
   (walk-cleanup (unroll (h-eval (h-read-code [1 2 3]))))
   ;; (1 2 3)
 
-  )
+
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     (let [a [1 2 3]])))))
 
 (comment
   (cleanup*
@@ -1275,6 +1287,7 @@
   )
 
 (comment
+
   (def spread-butter
     (h-read-code
      (lambda
@@ -1358,9 +1371,4 @@
      (let [water :water]
        (release
         (ergo (mix :seed :water) :plant)
-        (mix water :seed))))))
-
-  (cleanup-lookup-verbose
-   (h-eval
-    (h-read-code
-     (release (ergo (mix :seed :water) :plant) :seed)))))
+        (mix water :seed)))))))

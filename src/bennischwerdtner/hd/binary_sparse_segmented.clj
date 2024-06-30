@@ -63,7 +63,6 @@
      :bsdc-seg/segment-length (/ dimensions
                                  segment-count)}))
 
-
 (defn indices->hv
   "Returns a segmented hypervector with `indices`
   set to 1, segmentwise.
@@ -102,7 +101,6 @@
   [1 0]
   (hv->indices (->hv)))
 
-
 (defn ->hv
   "
   Returns a fresh, random hypervector - the element of VSA.
@@ -133,6 +131,7 @@
                             #(fm.rand/irand
                               segment-length)))))
 
+;; This also called a seed vector in the literature
 (def ->seed ->hv)
 
 ;; good enough for my needs
@@ -141,8 +140,6 @@
   ([x] (hv? x default-opts))
   ([x {:bsdc-seg/keys [N]}]
    (and (dtt/tensor? x) (= N (dtype/ecount x)))))
-
-
 
 (defn maximally-sparse?
   "Returns true if `a` is maximally sparse.
@@ -184,7 +181,6 @@
       (f/not-eq 0 a)
       (f/not-eq 0 b)))
     segment-count)))
-
 
 ;;
 ;; -------------------
@@ -308,7 +304,7 @@
 
   This is an example of 'Context-Dependent Thinning' (Rachkovskij 2001)."
   ([a] (thin-pth-modulo a))
-  ([a {:bsdc-seg/keys [segment-count segment-length N]}]
+  ([a {:bsdc-seg/keys [segment-count segment-length N] :as opts}]
    (let [indices
          (->
           (dtt/reshape a [segment-count segment-length])
@@ -327,10 +323,13 @@
                             segment-max-indices))
                      (count segment-max-indices)))]
                chosen-index)))
-          (f/+ (f/* (range segment-count) segment-length)))
-         v (dtype/alloc-zeros :int8 N)]
-     (doseq [i indices] (dtype/set-value! v i 1))
-     (dtt/->tensor v))))
+          ;; (f/+ (f/* (range segment-count) segment-length))
+          )
+         ;; v (dtype/alloc-zeros :int8 N)
+         ]
+     ;; (doseq [i indices] (dtype/set-value! v i 1))
+     ;; (dtt/->tensor v)
+     (indices->hv indices opts))))
 
 (defn thin
   "Returns a new thinned vector of `a` where 1 non-zero bit per segment in `a` is left over.
@@ -866,6 +865,8 @@
     [(similarity a (thin (bundle a (weaken b 0.5))))
      (similarity a (thin (bundle a b)))])
   [0.76 0.58])
+
+
 
 
 

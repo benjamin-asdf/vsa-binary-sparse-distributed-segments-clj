@@ -54,9 +54,7 @@
   ;; I am excited...
   [
    (first (cleanup-lookup-verbose result))
-
    :result
-
    (cleanup-lookup-value result)])
 
 
@@ -82,6 +80,7 @@
 ;; Then you can do this: (omitting details)
 ;;
 
+;; ... imaginary
 (let [mexico-record
       {:capital 'mxc :currency 'peso :name 'mex}
       usa-record

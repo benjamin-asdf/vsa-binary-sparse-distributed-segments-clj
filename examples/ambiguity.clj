@@ -1,4 +1,3 @@
-
 (require '[bennischwerdtner.hd.binary-sparse-segmented :as hd])
 (require '[tech.v3.datatype.functional :as f])
 
@@ -64,34 +63,3 @@
     [(hd/similarity a (mostly a b 0.3))
      (hd/similarity b (mostly a b 0.3))])
   [0.77 0.19])
-
-
-
-(require '[bennischwerdtner.hd.binary-sparse-segmented :as hd])
-
-
-(let [a (hd/->seed)
-      b (hd/->seed)
-      c (hd/->seed)]
-  (hd/similarity
-   (hd/bind (hd/thin (hd/bundle a b)) c)
-   (hd/thin (hd/bundle (hd/bind a c) (hd/bind b c)))))
-
-
-
-(require '[bennischwerdtner.hd.binary-sparse-segmented :as hd])
-
-(let [a (hd/->seed)
-      b (hd/->seed)
-      c (hd/->seed)]
-  (=
-   (hd/bind c (hd/bundle a b))
-   (hd/bundle (hd/bind a c) (hd/bind b c))))
-true
-
-(let [a (hd/->seed)
-      b (hd/->seed)
-      c (hd/->seed)]
-  (=
-   (hd/thin (hd/bind c (hd/bundle a b)))
-   (hd/thin (hd/bundle (hd/bind a c) (hd/bind b c)))))

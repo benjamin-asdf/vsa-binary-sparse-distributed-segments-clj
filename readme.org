@@ -104,6 +104,18 @@ We can envisage a programming paradigm that models something like a multiverse, 
 
 Similarly, a =multi-symbol= could resolve to either a list of things, or to a thing representing the set of things.
 
+
+
+* Sparse Distributed Memory
+
+
+
+[[edraw:data=H4sIADpegmYAA71WW2+bMBT+K5b7skkhGIempApI29NeuodJ07q9sdiAFYIj2wnpfv2OMV5oLrtopeISbI7Pd/GxyVLvS3TY1I1OcWXM9j4M27adtrOpVGVICSEhRGAXcn+oRbO+FBgtFouwe4tRK5ipUnw7JxhVXJSVSXFMobHnSgvZpDiaRjhbMl5oJFiKOVN5G9gm9G5ytebqeX9Aglwp2WLk3n5xCHPf/tCjQMdWcc3Vnr/TW74yn3IjZIob2XCAF7x9Lw8pDiKC7EXtiZHixWOK3cPX7kEqwRvIl++MxEgbJdfcZylEXaf4JiL2AL7b3FQIyD5AxklwZxNP7lA8Id8wCrNl6BjCg9WXLRWwQocO5am7X3Xr6MD3fLUuldw17AqZoig6sHI4SLIn3OP5sMQexxxeRN8R9FTokUhyJJg4xpHlCfztDyAafjAnlqBCNibQ4ge30X2zyDeihuE6b3QAEySAsB0b5M2qkirFG8FYzTsImjiIiIC/OWMwoxoxvpKMq2VoR/WuO2sD3oDonarf3JwVzFtvkbPrz8LtREaxrQtS0ePZae2sPBtxlvPEbG9lNPBy3ntJnFAaD8y86MpVD4deJ6fF2WHEPQZgZsTbNwpSMkCKxkSi9LU0zcgA6enfi+9vq8WVpy0+QETg5FnxjeLj/NKMja0O0EZcWl29D9ZWTMbzz1fHDPCzFUTDR8O7+H+K6AVB8+eCXhyAxq/gmMcA/OxhzJXbb0a3FujzqJvRL9tGVuR38shK+vgydfabj1KcuDIIS7jgL2D2E7zyVKEqCgAA]]
+
+
+
+
+
 * Acknowledgements
 
 Thanks to [[https://github.com/gigasquid/vsa-clj][Carin Meier's intro to VSA]].

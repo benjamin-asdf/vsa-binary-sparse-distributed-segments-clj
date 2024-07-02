@@ -122,7 +122,6 @@
   )
 
 
-
 ;; --------------------------
 ;; Storage
 ;; --------------------------
@@ -194,22 +193,88 @@
 ;; Each of the bits in the output models 1 Purkinje cell (output cell)
 ;;
 
-(defn sdm-read
-  [content-matrix address-locations word-lenght
-   word-segment-length word-segment-count]
-  ;; depends on U (the width of the content matrix) ==
-  ;; word-length
-  (let [indices (-> (dtt/reduce-axis (dtt/select
-                                      content-matrix
-                                      address-locations)
-                                     f/sum
-                                     0)
-                    (dtt/reshape [word-segment-count
-                                  word-segment-length])
-                    (dtt/reduce-axis dtype-argops/argmax))]
-    ;; create a sparse binary segmented hypervector
-    ;; from the indices
-    (hd/indices->hv indices)))
+
+;;
+;;
+;;
+;; activations
+;; (granule cells)
+;; |- golgi cells inhibit
+;;
+;;
+;;
+;;
+;;  +--+        content matrix:
+;;  |0 |       +-------------+------------------------+
+;;  |1 +------>| 1 0 1 0 2 0 |                        | parallel fibres
+;;  |0 |       |             |                        |
+;;  |. |       |             |                        |                |-(stellate cells inhibit)
+;;  |1 +------>| 1 1 0 1 1 0 |                        |
+;;  |  |       +---------+---+------------------------+
+;;  +--+                 |
+;;   y                   v
+;;              +------------+-------------------------+
+;;              |        3   |                         | sum          ('purkinje cell inputs')
+;;              +------------+-------------------------+              |-(basket cells inhibit)
+;;
+;;                           1,                  ...   segment-count
+;;
+;;
+;;              +------------+-------------------------+
+;;              |        1   |                         | Z        <---+
+;;              +------------+-------------------------+ word out     |
+;;                                                                    |
+;;                                                                    |
+;;               one non-zero bit per segment                         |
+;;                                                        we can imagine purnkinje cell activations,
+;;                                                        but the reader neuron of purkinje cells
+;;                                                        might modify the word-out
+;;
+;;                                                        deep cerebellar nucleus
+;;
+;;
+;;
+;;
+;; - In cerebellum, purkinje cells are inhibitory
+;; - Climbing fiber + parallel fiber input leads to *long term depression*
+;; - So it would be like decrementing the bits in content matrix, and reading the output flipped
+;;
+;;
+;;
+;;
+
+;; - each parallel fibers goes through 500 purkinje cells
+;; - each purkinje cell recieves information from 200k pfs
+;; - you need large numbers of granule cell inputs to make a purkinje fire
+;; -
+;; - Buzsáki: This arrangment suggests that cerebellar "modules", which roughly
+;; correspond to the extend of parallel fibers, process the incomming inputs locally,
+;; but they do not need to consult or inform the rest to the cerebellum about the locally
+;; derived computation.
+;;
+;;
+
+
+
+
+
+
+;; (defn sdm-read
+;;   [content-matrix address-locations word-lenght
+;;    word-segment-length word-segment-count]
+;;   ;; depends on U (the width of the content matrix) ==
+;;   ;; word-length
+;;   (let [indices (-> (dtt/reduce-axis (dtt/select
+;;                                       content-matrix
+;;                                       address-locations)
+;;                                      f/sum
+;;                                      0)
+;;                     (dtt/reshape [word-segment-count
+;;                                   word-segment-length])
+;;                     (dtt/reduce-axis dtype-argops/argmax))]
+;;     ;; create a sparse binary segmented hypervector
+;;     ;; from the indices
+;;     (hd/indices->hv indices)))
 
 ;; N = 10000 (word length).
 ;; L = 100 (word non zero bits count).
@@ -227,7 +292,7 @@
 (comment
   (def word-length (:bsdc-seg/N hd/default-opts))
   (def address-length word-length)
-  (def address-count 1e4)
+  (def address-count (long 1e4))
   (def address-density-k 6)
   ;; G
   (def decoder-threshold 2)
@@ -256,8 +321,7 @@
          (decode-addresses A a decoder-threshold)
          word-length
          (:bsdc-seg/segment-length hd/default-opts)
-         (:bsdc-seg/segment-count hd/default-opts)
-         ))
+         (:bsdc-seg/segment-count hd/default-opts)))
   1.0
 
   ;; (def T (into [] (map (fn [_] (->word))) (range 1000)))
@@ -305,6 +369,35 @@
           (:bsdc-seg/segment-length hd/default-opts)
           (:bsdc-seg/segment-count hd/default-opts))))
 
+(comment
+
+  (clojure.set/intersection
+   (into #{} (decode-addresses A a decoder-threshold))
+   (into #{} (decode-addresses A c decoder-threshold)))
+
+  (clojure.set/intersection
+   (into #{} (decode-addresses A a decoder-threshold))
+   (into #{} (decode-addresses A b decoder-threshold)))
+
+  (def a (hd/->seed))
+  (def b (hd/->seed))
+  (def c (hd/thin (hd/bundle a b)))
+
+  (do
+    (auto-associate! C A a decoder-threshold)
+    (auto-associate! C A b decoder-threshold)
+    (auto-associate! C A c decoder-threshold))
+
+
+  ;; this version doesn't have the critical distance property
+
+  [(hd/similarity b (read-word b))
+   (hd/similarity c (read-word c))
+   (hd/similarity c (read-word (read-word c)))
+   (hd/similarity a (read-word c))
+   (hd/similarity b (read-word c))]
+
+  [1.0 0.77 0.83 0.19])
 
 (comment
 
@@ -319,8 +412,7 @@
     p-ideal)
   0.0017099759466766976
 
-
-  (defn factorial [n]
+  (defn
     (reduce * (range 1 (inc n))))
 
   (defn choose [n k]

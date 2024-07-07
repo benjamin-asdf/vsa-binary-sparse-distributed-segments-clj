@@ -194,3 +194,41 @@
   ;; lava and water are not merely associated
   ;; perhaps they should be *the same*, given the right context
   )
+
+
+(require '[bennischwerdtner.hd.binary-sparse-segmented :as hd])
+
+(let [a (hd/->seed)
+      b (hd/->seed)
+      c (hd/->seed)]
+  (=
+   (hd/bind c (hd/bundle a b))
+   (hd/bundle (hd/bind a c) (hd/bind b c))))
+
+true
+
+
+
+
+(let [a (hd/->seed)
+      b (hd/thin (hd/bundle (hd/weaken a 0.25) (hd/->seed)))]
+  [ ;; permuting creates a vector disimilar to a
+   (hd/similarity (hd/permute a) a)
+   ;; permute inverse is the inverse of permute
+   (=
+    (hd/permute-inverse (hd/permute a))
+    a)
+   ;; permute perserves distance
+   (hd/similarity a b)
+   (hd/similarity
+    (hd/permute a)
+    (hd/permute b))
+   ;; permute distributes over addition
+   (=
+    (hd/permute (hd/bundle a b))
+    (hd/bundle
+     (hd/permute a)
+     (hd/permute b)))
+   ;; ... and here, permute-n is equal to binding with a 'n-normal' vector
+   ;; wich is hereby defined
+   ])

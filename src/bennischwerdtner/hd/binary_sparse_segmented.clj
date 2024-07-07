@@ -506,6 +506,27 @@
   ;; I swap this here so the mapping is left
   [a b] (bind b a -1))
 
+(defn unit-vector-n
+  "
+  Returns the `n` unit vector.
+
+  This is the vector which represents the same `bind` as a `permute` with `n`.
+
+  See [[permute-n]].
+
+  "
+  ([n] (unit-vector n default-opts))
+  ([n {:as opts :bsdc-seg/keys [segment-count]}]
+   (indices->hv (repeatedly segment-count (constantly n))
+                opts)))
+
+;; ---------------------------------------
+;; This is an implementation of
+;; Zhonghao Yang 2023, COGNITIVE MODELING AND LEARNING WITH SPARSE BINARY HYPERVECTORS
+;; 'inverse bind' and 'unit vector'
+;; See NOTICE
+;;
+
 (defn unit-vector
   "
   Returns the unit vector.
@@ -518,8 +539,8 @@
 
   "
   ([] (unit-vector default-opts))
-  ([{:bsdc-seg/keys [segment-count] :as opts}]
-   (indices->hv (repeatedly segment-count (constantly 0)) opts)))
+  ([{:as opts :bsdc-seg/keys [segment-count]}]
+   (unit-vector-n 0 opts)))
 
 (defn inverse
   "Returns the inverse of `a`.
@@ -573,6 +594,9 @@
                           indices-a)]
        indices-c
        (indices->hv indices-c opts)))))
+
+
+
 
 
 
@@ -751,6 +775,20 @@
      (= b (bind2 c a-inv default-opts))])
   [true true true])
 
+;; ---------------------------------------
+;;
+;; Zhonghao Yang 2023, COGNITIVE MODELING AND LEARNING WITH SPARSE BINARY HYPERVECTORS
+;; See NOTICE
+;;
+;; Ends here
+;;
+
+
+
+
+
+
+
 
 
 ;; I forget how this is called in the literature,
@@ -807,10 +845,10 @@
      (doall (map (fn [idx-in-seg i]
                    (when (<= segmentwise-cutoff idx-in-seg)
                      (dtype/set-value! v i 1)))
-              indices
-              (f/+ (f/* (range segment-count)
-                        segment-length)
-                   indices)))
+                 indices
+                 (f/+ (f/* (range segment-count)
+                           segment-length)
+                      indices)))
      (dtt/->tensor v))))
 
 

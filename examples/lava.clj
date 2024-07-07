@@ -211,24 +211,32 @@ true
 
 
 (let [a (hd/->seed)
-      b (hd/thin (hd/bundle (hd/weaken a 0.25) (hd/->seed)))]
-  [ ;; permuting creates a vector disimilar to a
+      b (hd/thin (hd/bundle (hd/weaken a 0.25)
+                            (hd/->seed)))]
+  [;; permuting creates a vector dissimilar to a
    (hd/similarity (hd/permute a) a)
-   ;; permute inverse is the inverse of permute
-   (=
-    (hd/permute-inverse (hd/permute a))
-    a)
-   ;; permute perserves distance
+   ;; permute-inverse is the inverse of permute
+   (= (hd/permute-inverse (hd/permute a)) a)
+   ;; permute-inverse is simply permuting with negative
+   ;; n. It just means rotate the other way
+   (= (hd/permute-n (hd/permute-n a 2) -2) a)
+   ;; permute preserves distance
    (hd/similarity a b)
-   (hd/similarity
-    (hd/permute a)
-    (hd/permute b))
+   (hd/similarity (hd/permute a) (hd/permute b))
    ;; permute distributes over addition
-   (=
-    (hd/permute (hd/bundle a b))
-    (hd/bundle
-     (hd/permute a)
-     (hd/permute b)))
-   ;; ... and here, permute-n is equal to binding with a 'n-normal' vector
-   ;; wich is hereby defined
-   ])
+   (= (hd/permute (hd/bundle a b))
+      (hd/bundle (hd/permute a) (hd/permute b)))
+   ;; ... and here, permute-n is equal to binding with
+   ;; a 'n-normal' vector wich is hereby defined. Call
+   ;; it unit-vector-n.
+   (= (hd/bind (hd/unit-vector-n 2) a) (hd/permute-n a 2))])
+
+[0.0 true true 0.43 0.43 true true]
+
+
+(let [a (hd/->seed)
+      b (hd/->seed)
+      c (hd/->seed)]
+  (=
+   (hd/bind c (hd/bundle a b))
+   (hd/bundle (hd/bind a c) (hd/bind b c))))

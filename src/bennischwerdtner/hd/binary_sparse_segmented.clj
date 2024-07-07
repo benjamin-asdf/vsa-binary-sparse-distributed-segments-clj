@@ -182,6 +182,7 @@
       (f/not-eq 0 b)))
     segment-count)))
 
+
 ;;
 ;; -------------------
 ;; 3. Permutation
@@ -304,31 +305,27 @@
 
   This is an example of 'Context-Dependent Thinning' (Rachkovskij 2001)."
   ([a] (thin-pth-modulo a))
-  ([a {:bsdc-seg/keys [segment-count segment-length N] :as opts}]
+  ([a
+    {:as opts
+     :bsdc-seg/keys [segment-count segment-length N]}]
    (let [indices
-         (->
-          (dtt/reshape a [segment-count segment-length])
-          (dtt/reduce-axis
-           (fn [segment]
-             (let [segment-max-indices
-                   (dtype-argops/argfilter
-                    (partial =
-                             (f/reduce-max segment))
-                    segment)
-                   ;; 'p'
-                   chosen-index
-                   (segment-max-indices
-                    (fm/mod
-                     (long (f/sum
-                            segment-max-indices))
-                     (count segment-max-indices)))]
-               chosen-index)))
-          ;; (f/+ (f/* (range segment-count) segment-length))
-          )
-         ;; v (dtype/alloc-zeros :int8 N)
-         ]
-     ;; (doseq [i indices] (dtype/set-value! v i 1))
-     ;; (dtt/->tensor v)
+           (->
+             (dtt/reshape a [segment-count segment-length])
+             (dtt/reduce-axis
+               (fn [segment]
+                 (let [segment-max-indices
+                         (dtype-argops/argfilter
+                           (partial =
+                                    (f/reduce-max segment))
+                           segment)
+                       ;; 'p'
+                       chosen-index
+                         (segment-max-indices
+                           (fm/mod
+                             (long (f/sum
+                                     segment-max-indices))
+                             (count segment-max-indices)))]
+                   chosen-index))))]
      (indices->hv indices opts))))
 
 (defn thin
@@ -515,9 +512,13 @@
   See [[permute-n]].
 
   "
-  ([n] (unit-vector n default-opts))
-  ([n {:as opts :bsdc-seg/keys [segment-count]}]
-   (indices->hv (repeatedly segment-count (constantly n))
+  ([n] (unit-vector-n n default-opts))
+  ([n
+    {:as opts
+     :bsdc-seg/keys [segment-count segment-length]}]
+   (indices->hv (repeatedly segment-count
+                            (constantly
+                              (mod n segment-length)))
                 opts)))
 
 ;; ---------------------------------------

@@ -114,6 +114,19 @@ Similarly, a =multi-symbol= could resolve to either a list of things, or to a th
 
 
 
+[[file:src/bennischwerdtner/sdm/sdm.clj]] contains a sparse distributed memory implementation using
+
+[[https://github.com/clj-python/libpython-clj][libpythonclj]], numpy + torch.
+
+This was a quick way for me to implement a gpu version, making this reasonably fast.
+
+
+
+
+
+
+
+
 
 
 * Acknowledgements

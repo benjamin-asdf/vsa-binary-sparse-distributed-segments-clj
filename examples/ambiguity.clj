@@ -14,11 +14,13 @@
 (def possibly mix)
 
 (comment
-  (hd/similarity (mix (->prototype :a)
-                      (->prototype :b)
-                      (->prototype :c)
-                      (->prototype :d))
-                 (->prototype :d))
+  (hd/similarity
+   (mix
+    (->prototype :a)
+    (->prototype :b)
+    (->prototype :c)
+    (->prototype :d))
+   (->prototype :d))
   0.29)
 
 (def neither (fn [a b] (hd/bind a b)))

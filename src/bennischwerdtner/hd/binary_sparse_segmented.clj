@@ -63,6 +63,7 @@
      :bsdc-seg/segment-length (/ dimensions
                                  segment-count)}))
 
+
 (defn indices->hv
   "Returns a segmented hypervector with `indices`
   set to 1, segmentwise.
@@ -70,13 +71,15 @@
   "
   ([indices] (indices->hv indices default-opts))
   ([indices
-    {:bsdc-seg/keys [segment-count segment-length N]}]
+    {:bsdc-seg/keys [segment-count segment-length N]
+     :keys
+     [tensor-opts]}]
    (let [indices (f/+ indices
                       (f/* (range segment-count)
                            segment-length))
          v (dtype/alloc-zeros :int8 N)]
      (doseq [i indices] (dtype/set-value! v i 1))
-     (dtt/->tensor v))))
+     (dtt/->tensor v tensor-opts))))
 
 (defn hv->indices
   "Returns the segment representation of `hv`.
@@ -597,10 +600,6 @@
        (indices->hv indices-c opts)))))
 
 
-
-
-
-
 (comment
   (let [a (->hv)] (= (unit-vector) (bind a (inverse a))))
   true
@@ -827,7 +826,8 @@
   "
   ([a drop-ratio] (weaken a drop-ratio default-opts))
   ([a drop-ratio
-    {:bsdc-seg/keys [segment-count segment-length N]}]
+    {:bsdc-seg/keys [segment-count segment-length N]
+     :keys [tensor-opts]}]
    ;; the indices decide how to drop,
    ;; 'context dependent weakening'
    ;;
@@ -846,13 +846,11 @@
      (doall (map (fn [idx-in-seg i]
                    (when (<= segmentwise-cutoff idx-in-seg)
                      (dtype/set-value! v i 1)))
-                 indices
-                 (f/+ (f/* (range segment-count)
-                           segment-length)
-                      indices)))
-     (dtt/->tensor v))))
-
-
+              indices
+              (f/+ (f/* (range segment-count)
+                        segment-length)
+                   indices)))
+     (dtt/->tensor v tensor-opts))))
 
 (comment
   ;; factor of 0 doesn't change anything

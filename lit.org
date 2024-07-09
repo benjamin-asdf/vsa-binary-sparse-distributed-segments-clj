@@ -19,10 +19,17 @@ arXiv:2001.11797
 Pentti Kanerva. Hyperdimensional computing: An introduction to computing in distributed representation with
 high-dimensional random vectors. Cognitive Computation, 1(2):139–159, 2009. doi:10.1007/s12559-009-9009-8.
 
-
 * 4
 
 Zhonghao Yang 2023
 Cognitive modeling and learning with sparse binary hypervectors
 
 https://paperswithcode.com/paper/cognitive-modeling-and-learning-with-sparse#code
+
+* 5
+
+Pentti Kanerva 1993 Sparse Distributed Memory and Related Models
+
+* 6
+
+Pentti Kanerva /Sparse Distributed Memory/, 1988

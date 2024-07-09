@@ -12,8 +12,8 @@
    [tech.v3.datatype.functional :as f]
    [clojure.math.combinatorics :as combo]))
 
-;; quick associative memory
-(defprotocol AssociativeAddressableMemory
+;; quick auto associative memory
+(defprotocol AutoAssociativeMemory
   (lookup [this query-v]
           [this query-v threshold])
   (lookup* [this query-v]
@@ -51,7 +51,7 @@
   []
   (let [m (atom [])]
     (reify
-      AssociativeAddressableMemory
+      AutoAssociativeMemory
       (lookup [this query-v]
         (auto-associative-lookup @m query-v))
       (lookup [this query-v threshold]
@@ -143,7 +143,6 @@
   (known (remember (->prototype :a)))
   (known (hd/->hv)))
 
-
 (defn sequence-marker-1 [k] (hd/->hv))
 
 (def sequence-marker (memoize sequence-marker-1))
@@ -195,9 +194,6 @@
         ;; (->prototype obj)})
         ;; (symbol? obj) (->prototype obj)
         :else (->prototype obj)))
-
-
-
 
 (defn unroll
   [hxs]
@@ -1299,6 +1295,9 @@
   ;; (:honey)
   )
 
+
+
+
 (comment
   (def seed+water->plant
     '(lambda
@@ -1339,37 +1338,25 @@
                  (clj->vsa :b)))))
   ;; (:c)
 
-  (cleanup*
-   (h-eval
-    (h-read-code
-     (release
-      (ergo (mix :seed :water) :plant)
-      (mix :seed :water)))))
+  (cleanup* (h-eval (h-read-code (release
+                                 (ergo (mix :seed :water)
+                                       :plant)
+                                 (mix :seed :water)))))
   ;; (:plant)
 
-  (cleanup-lookup-verbose
-   (h-eval
-    (h-read-code
-     (release
-      (ergo (mix :seed :water) :plant)
-      (mix :seed)))))
+  ;;  - analogy primitives... ???
 
   (cleanup-lookup-verbose
    (h-eval
     (h-read-code
      (release
       (ergo (mix :seed :water) :plant)
-      (mix :seed :water)))))
+      (mix :seed))))))
 
-  (cleanup-lookup-verbose
-   (h-eval
-    (h-read-code
-     (let [water :water]
-       (release
-        (ergo (mix :seed :water) :plant)
-        (mix water :seed))))))
 
-  (cleanup-lookup-verbose
-   (h-eval
-    (h-read-code
-     (release (ergo (mix :seed :water) :plant) :seed)))))
+
+(comment
+
+
+
+  )

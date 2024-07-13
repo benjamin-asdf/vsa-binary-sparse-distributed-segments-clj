@@ -10,80 +10,75 @@
    [tech.v3.parallel.for :as pfor]
    [tech.v3.datatype.argops :as dtype-argops]
    [tech.v3.datatype.functional :as f]
-   [clojure.math.combinatorics :as combo]))
+   [clojure.math.combinatorics :as combo]
+   [bennischwerdtner.sdm.sdm :as sdm]))
 
-;; quick associative memory
-(defprotocol AssociativeAddressableMemory
-  (lookup [this query-v]
-    [this query-v threshold])
-  (lookup* [this query-v]
-           [this query-v threshold])
-  (store [this v])
-  (mem [this]))
+(defprotocol AutoAssociativeMemory
+  (lookup [this address]
+          [this address top-k])
+  (store [this address])
+  (known? [this address]))
 
-(defn auto-associative-lookup
-  ([m query-v] (auto-associative-lookup m query-v 0.09))
-  ([m query-v threshold]
-   (let [similarities
-         (into [] (pmap #(hd/similarity % query-v) m))]
-     (when (seq similarities)
-       (let [argmax (dtype-argops/argmax similarities)]
-         (when (<= threshold (similarities argmax)) (m argmax)))))))
+(defonce
+  ->auto-a-memory
+  (fn []
+    (let [address-count (long 1e4)
+          word-length (:bsdc-seg/N hd/default-opts)
+          address-density 0.0009
+          ;; (long (/ 6 address-count))
+          decoder-threshold 2
+          read-threshold 5
+          state (atom {:content-matrix (sdm/->content-matrix
+                                        address-count
+                                        word-length)
+                       :decoder
+                       (sdm/->address-decoder
+                        {:address-count address-count
+                         :address-density address-density
+                         :word-length word-length})})]
+      (reify
+        AutoAssociativeMemory
+        (lookup [this address k]
+          (let [{:keys [decoder content-matrix]} @state]
+            (-> (sdm/lookup-iteratively
+                 content-matrix
+                 address
+                 decoder
+                 (merge hd/default-opts
+                        {:decoder-threshold
+                         decoder-threshold
+                         :read-threshold read-threshold
+                         :top-k 1}))
+                :result)))
+        (lookup [this address] (lookup this address 1))
+        (store [this address]
+          (let [{:keys [decoder content-matrix]} @state]
+            (sdm/auto-associate! content-matrix
+                                 address
+                                 decoder
+                                 decoder-threshold)))))))
 
-(defn auto-associative-lookup*
-  ([m query-v] (auto-associative-lookup* m query-v 0.09))
-  ([m query-v threshold]
-   (let [similarities
-         (into [] (pmap #(hd/similarity % query-v) m))]
-     (map m
-          (map first
-               (filter (comp #(< threshold %) second)
-                       (map-indexed vector similarities)))))))
-
-(defn auto-associative-store [m v]
-  (assert (hd/hv? v))
-  (conj m v))
-
-;; there is literature on how to make this smarter,
-;; in particular in a `sparse distributed memory`, you don't grow the memory with every new item
-;;
-(defn ->auto-a-memory
-  []
-  (let [m (atom [])]
-    (reify
-      AssociativeAddressableMemory
-      (lookup [this query-v]
-        (auto-associative-lookup @m query-v))
-      (lookup [this query-v threshold]
-        (auto-associative-lookup @m query-v threshold))
-      (lookup* [this query-v]
-        (auto-associative-lookup* @m query-v))
-      (lookup* [this query-v threshold]
-        (auto-associative-lookup* @m query-v threshold))
-      (store [this v] (swap! m auto-associative-store v) this)
-      (mem [this] @m))))
-
-(def auto-a-memory (->auto-a-memory))
+(defonce auto-a-memory (->auto-a-memory))
 
 (defn known
   "Cleanup x with the autoassociative memory."
   ([x] (known x 0.09))
   ([x threshod]
-   (lookup auto-a-memory x threshod)))
+   ;; ignore threshold rn. Have to think about it
+   (lookup auto-a-memory x)))
+
+(defn remember [x]
+  (store auto-a-memory x)
+  x)
 
 (defn remember-soft
   ([x] (remember-soft x 0.9))
   ([x threshod]
-   (when-not (known x threshod) (store auto-a-memory x))
+   (when-not (known x threshod) (remember x))
    x))
 
-(defn remember [x] (store auto-a-memory x) x)
 
 ;; Make a quick book keeping implementation:
-
-(def hyper-symbols-symbols
-  ["🐂" "🐛" "🚌" "Ψ" "Ϟ" "🪓" "🌈"])
-
 (let [lut (atom {})]
   ;; "encountering a symbol" since symbol and value are
   ;; interchangeable in hdc (Kanerva 2009), why not
@@ -103,26 +98,26 @@
           (remember v)
           v)))
   (defn cleanup-lookup-verbose
-    ([query-v] (cleanup-lookup-verbose query-v 0.09))
-    ([query-v threshold]
+    ([address] (cleanup-lookup-verbose address 0.09))
+    ([address threshold]
      (->> (map (fn [[k v]]
                  {:k k
-                  :similarity (hd/similarity v query-v)
+                  :similarity (hd/similarity v address)
                   :v v})
-            @lut)
+               @lut)
           (filter (comp #(<= threshold %) :similarity))
           (sort-by :similarity (fn [a b] (compare b a))))))
   (defn cleanup-lookup-value
-    [query-v]
-    (some->> (cleanup-lookup-verbose query-v)
+    [address]
+    (some->> (cleanup-lookup-verbose address)
              first
              :k))
   (defn cleanup-mem [] @lut))
 
 (defn cleanup*
-  ([query-v] (cleanup* query-v 0.09))
-  ([query-v threshold]
-   (map :k (cleanup-lookup-verbose query-v threshold))))
+  ([address] (cleanup* address 0.09))
+  ([address threshold]
+   (map :k (cleanup-lookup-verbose address threshold))))
 
 (defn mix1 [a b]
   (hd/thin (hd/bundle (->prototype a) (->prototype b))))
@@ -140,9 +135,15 @@
     (= a (auto-associative-lookup auto-a-memory a))))
 
 (comment
+  (remember (->prototype :a))
+  (cleanup-lookup-value
+   (known (->prototype :a)))
+  (cleanup-lookup-value (->prototype :a))
+  (hd/similarity
+   (->prototype :a)
+   (known (->prototype :a)))
   (known (remember (->prototype :a)))
   (known (hd/->hv)))
-
 
 (defn sequence-marker-1 [k] (hd/->hv))
 
@@ -156,13 +157,13 @@
   ;; bind (that is equivalent to a random projection
   ;; for each position in this implementation)
   ;;
-  (run! (fn [x] (when-not (known x 0.9) (remember x))) xs)
+  (run! (fn [x] (remember-soft x)) xs)
   (hd/thin (apply hd/bundle
              (map-indexed (fn [i x]
                             (hd/bind x (sequence-marker i)))
                           xs))))
 
-;; seq is basically a set where the keys correspond to indices
+;; seq is basically a map where the keys correspond to indices
 ;; retrieving is the same as with a record
 
 (defn h-nth [hsx idx]
@@ -217,6 +218,7 @@
        (if (hd/hv? e) (cleanup-lookup-value e) (map f e)))]
     (map f form)))
 
+
 ;;
 ;; A - Ambiguity primitives
 ;;
@@ -238,10 +240,9 @@
                  (->prototype :d))
   0.29)
 
-(def neither (fn [a b] (hd/bind a b)))
+(defn neither [a b] (hd/bind a b))
 
-(def roughly
-  (fn [a amount-of-a] (hd/weaken a (- 1 amount-of-a))))
+(defn roughly [a amount-of-a] (hd/weaken a (- 1 amount-of-a)))
 
 (defn mostly
   ([a b] (mostly a b 0.3))
@@ -289,8 +290,7 @@
      [(cleanup* coin)
       (cleanup* coin 0.2)
       (cleanup* (impossibly coin (->prototype :tails)))]])
-
-  ;; [0.87 0.14 [(:heads :tails) (:heads) (:heads)]]
+  ;; [0.91 0.11 [(:heads :tails) (:heads) (:heads)]]
 
   )
 
@@ -376,12 +376,155 @@
 
 
 (comment
-  (walk-cleanup (unroll (h-rest (pair (->prototype :a) (->prototype :b)))))
-  ;; (:b)
+  (cleanup*
+   (h-first
+    (pair
+     (->prototype :a)
+     (->prototype :b))))
 
-  (cleanup* (h-first (h-rest (pair (->prototype :a) (->prototype :b)))))
-  ;; (:b)
+  (remember (->prototype :a))
+  (remember (->prototype :b))
+  (known (->prototype :a))
+  (known (->prototype :b))
 
+  (hd/similarity
+   (->prototype :b)
+   (hd/unbind
+    (hd/thin
+     (hd/bundle
+      (hd/bind (->prototype :a) (sequence-marker 0))
+      (hd/bind (->prototype :b) (sequence-marker 1))))
+    (sequence-marker 1)))
+
+  (hd/similarity
+   (->prototype :b)
+   (known (hd/unbind
+           (hd/thin
+            (hd/bundle
+             (hd/bind (->prototype :a) (sequence-marker 0))
+             (hd/bind (->prototype :b) (sequence-marker 1))))
+           (sequence-marker 1))))
+
+  (hd/similarity
+   (hd/thin (hd/bundle
+             (hd/bind (->prototype :a)
+                      (sequence-marker 0))
+             (hd/bind (->prototype :b)
+                      (sequence-marker 1))))
+   (pair (->prototype :a) (->prototype :b)))
+
+
+  (hd/similarity
+   (->prototype :a)
+   (h-nth (pair (->prototype :a) (->prototype :b)) 0))
+
+  (hd/similarity
+   (->prototype :a)
+   (known (h-nth (pair (->prototype :a)
+                       (->prototype :b))
+                 0)))
+
+  (hd/similarity
+   (->prototype :b)
+   (known (h-nth (pair (->prototype :a)
+                       (->prototype :b))
+                 1)))
+
+  (time (let [hsx (pair (->prototype :a)
+                        (->prototype :b))]
+          (take 10
+                (map known (map #(h-nth hsx %) (range))))))
+
+
+  (cleanup*
+   (let
+       [hsx (pair (->prototype :a) (->prototype :b))]
+       (known (h-nth hsx 3))))
+
+  (def a (->prototype :a))
+  (def b (->prototype :b))
+
+  (hd/similarity
+   (->prototype :a)
+   (let
+       [hsx
+        (->sequence (->prototype :a) (->prototype :b))]
+       (known (h-nth hsx 3))))
+
+  (hd/similarity
+   (->prototype :b)
+   (let
+       [hsx (pair (->prototype :a) (->prototype :b))]
+       (known (h-nth hsx 3))))
+
+
+  (cleanup* (known (h-nth (pair (->prototype :a) (->prototype :b)) 2)))
+
+  (hd/similarity
+   (->prototype :a)
+   (h-nth (pair (->prototype :a) (->prototype :b)) 2))
+  (def thehsx (hd/unbind
+               (hd/thin
+                (hd/bundle
+                 (hd/bind (->prototype :a) (sequence-marker 0))
+                 (hd/bind (->prototype :b) (sequence-marker 1))))
+               (sequence-marker 2)))
+
+
+  (hd/similarity
+   (->prototype :a)
+   (hd/unbind
+    (hd/thin
+     (hd/bundle
+      (hd/bind (->prototype :a) (sequence-marker 0))
+      (hd/bind (->prototype :b) (sequence-marker 1))))
+    (sequence-marker 2)))
+
+  (walk-cleanup
+   (unroll (h-rest
+            (pair (->prototype :a)
+                  (->prototype :b)))))
+  '(:b)
+
+  (walk-cleanup (unroll (pair (->prototype :a) (->prototype :b))))
+  '(:a :b)
+
+  (cleanup-lookup-value (known (h-nth (pair (->prototype :a) (->prototype :b)) 0)))
+
+  (cleanup-lookup-value
+   (known
+    (h-nth
+     (pair (->prototype :a) (->prototype :b))
+     1)))
+
+  (hd/similarity (->prototype :a) (known (->prototype :b)))
+  (cleanup* (known (h-nth (pair (->prototype :a) (->prototype :b)) 2)))
+  (cleanup-lookup-value
+   (known (h-nth
+           (->sequence (->prototype :a) (->prototype :b))
+           0)))
+
+  (cleanup-lookup-value (known (->prototype :c)))
+
+  (hd/similarity
+   (->prototype :a)
+   (h-nth
+    (->sequence
+     (->prototype :a)
+     (->prototype :b))
+    1))
+
+  (hd/similarity
+   (->prototype :b)
+   (h-nth
+    (->sequence
+     (->prototype :a)
+     (->prototype :b))
+    1))
+
+  (hd/similarity (->prototype :a) (known (->prototype :a)))
+  (hd/similarity (->prototype :a) (known (->prototype :b)))
+  (hd/similarity (->prototype :b) (known (->prototype :b)))
   )
 
 
@@ -476,10 +619,10 @@
 (defn eval-let
   ([exp] (eval-let exp *h-environment*))
   ([exp env]
-   (let [bindings (for [[k v] (partition
-                                2
-                                (unroll (known (h-nth exp
-                                                      1))))]
+   (let [bindings (for [[k v]
+                        (partition
+                         2
+                         (unroll (known (h-nth exp 1))))]
                     [(known k) (h-eval v env)])
          body (known (h-nth exp 2))
          new-env
@@ -498,6 +641,35 @@
    (h-eval
     (clj->vsa ['let ['a 100 'b 200] 'a])
     (non-sense)))
+
+  (known (h-nth (clj->vsa ['let ['a 100 'b 200] 'a]) 1))
+
+
+  (h-nth (clj->vsa ['let ['a 100 'b 200] 'a]) 1)
+
+  (known (clj->vsa [:a [10 20]]))
+  (walk-cleanup (unroll (known (h-nth (clj->vsa [:a [10 20]]) 1))))
+
+  (walk-cleanup (unroll (known (h-nth (clj->vsa [:a [10 20 100 200] :c]) 1))))
+
+  (known (clj->vsa [10 20]))
+
+  (hd/similarity
+   (known (clj->vsa [10 20 100 200]))
+   (h-nth (clj->vsa [:a [10 20 100 200] :c]) 1))
+
+
+
+
+
+
+  (let? (clj->vsa ['let ['a 100 'b 200] 'a]))
+
+  (hd/similarity
+   (->prototype 'let)
+   (h-nth (clj->vsa ['let ['a 100 'b 200] 'a]) 0))
+
+
 
   ;; mix primitives work of course
   (cleanup*
@@ -850,17 +1022,17 @@
 
 ;; do you return a sequence of outcomes?
 ;; or a superposition of outcomes?
-
 (defn eval-branch
   [exp env]
-  (let [antecedent (h-eval (branch->antecedent exp) env)
+  #_(let [antecedent (h-eval (branch->antecedent exp) env)
         postcedent (h-eval (branch->postcedent exp))
-        collapsed-branches (lookup* auto-a-memory
-                                    antecedent
-                                    ;; dynamic threshold
-                                    ;; would be
-                                    ;; interesting
-                                    0.1)]
+        collapsed-branches
+        (lookup* auto-a-memory
+                 antecedent
+                 ;; dynamic threshold
+                 ;; would be
+                 ;; interesting
+                 0.1)]
     ;; [collapsed-branches
     ;;  antecedent
     ;;  postcedent]
@@ -880,7 +1052,7 @@
      ;; hdv
      ;;
      ;;
-     (branch? exp) (eval-branch exp env)
+     ;; (branch? exp) (eval-branch exp env)
      (lambda? exp) (eval-lambda exp env)
      (if? exp) (eval-if exp env)
      (let? exp) (eval-let exp env)
@@ -935,7 +1107,11 @@
            (doall (map #(eval-compound-procedure %
                                                  arguments)
                     (filter compound-procedure?
-                            (lookup* auto-a-memory op 0.3))))]
+                      ;; I don't have lookup* in my sdm
+                      ;; right now
+                      [(known auto-a-memory)]
+                      ;; (lookup* auto-a-memory op 0.3)
+                    )))]
      (if-not (seq (concat primitive-outcomes
                           compound-outcomes))
        ;; guess that's an error
@@ -989,7 +1165,6 @@
                 (map analyse-expression (nth clj-exp 1)))
           (analyse-expression (nth clj-exp 2)))
 
-
     (and (list? clj-exp) (= 'fn (first clj-exp)))
     (eval clj-exp)
 
@@ -997,7 +1172,6 @@
                                      clj-exp))
     (list? clj-exp)
     (into [] (map analyse-expression clj-exp))
-
 
     ;; guess I'm kludgin it up, but hey clj meta
     ;; data and namespaces are simply amazing
@@ -1019,19 +1193,16 @@
   [code]
   `(h-read '~code))
 
-;; (alter-meta! #'h-read (constantly {:foo :bar}))
-;; (meta #'h-read)
-;; (meta (first [h-read]))
-
 (comment
   (analyse-expression '#{a b c})
   ;; [possibly a c b]
 
-  (cleanup*
-   (h-eval
-    (clj->vsa
-     ['let ['a 10 'b 20]
-      (analyse-expression '#{a b})])))
+  (time
+   (cleanup*
+    (h-eval
+     (clj->vsa
+      ['let ['a 10 'b 20]
+       (analyse-expression '#{a b})]))))
 
   (cleanup*
    (hd/unbind
@@ -1126,8 +1297,6 @@
 
   (walk-cleanup (unroll (h-eval (h-read-code [1 2 3]))))
   ;; (1 2 3)
-
-
 
   (cleanup*
    (h-eval
@@ -1287,7 +1456,6 @@
   )
 
 (comment
-
   (def spread-butter
     (h-read-code
      (lambda
@@ -1302,6 +1470,9 @@
    (hd/unbind output (clj->vsa :butter)))
   ;; (:honey)
   )
+
+
+
 
 (comment
   (def seed+water->plant
@@ -1343,32 +1514,25 @@
                  (clj->vsa :b)))))
   ;; (:c)
 
-  (cleanup*
-   (h-eval
-    (h-read-code
-     (release
-      (ergo (mix :seed :water) :plant)
-      (mix :seed :water)))))
+  (cleanup* (h-eval (h-read-code (release
+                                 (ergo (mix :seed :water)
+                                       :plant)
+                                 (mix :seed :water)))))
   ;; (:plant)
 
-  (cleanup-lookup-verbose
-   (h-eval
-    (h-read-code
-     (release
-      (ergo (mix :seed :water) :plant)
-      (mix :seed)))))
+  ;;  - analogy primitives... ???
 
   (cleanup-lookup-verbose
    (h-eval
     (h-read-code
      (release
       (ergo (mix :seed :water) :plant)
-      (mix :seed :water)))))
+      (mix :seed))))))
 
-  (cleanup-lookup-verbose
-   (h-eval
-    (h-read-code
-     (let [water :water]
-       (release
-        (ergo (mix :seed :water) :plant)
-        (mix water :seed)))))))
+
+
+(comment
+
+
+
+  )

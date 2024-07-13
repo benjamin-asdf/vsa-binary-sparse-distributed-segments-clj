@@ -1,5 +1,8 @@
 #!/bin/sh
 
-source ./activate.sh || exit 10
+cd "$(dirname "$0")"
+
+source ./activate.sh 
 
 /usr/bin/clojure "$@"
+

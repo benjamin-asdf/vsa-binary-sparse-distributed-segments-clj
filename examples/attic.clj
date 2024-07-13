@@ -913,3 +913,39 @@
 
 
   )
+
+(comment
+  (f/bit-and
+   (hd/->seed)
+   (dtt/->tensor (concat (repeatedly (/ 1e4 5)) (repeatedly))))
+
+
+  (defn select-k-segment
+    [v k]
+    (f/bit-and v
+               (dtt/compute-tensor
+                [word-length]
+                (fn [i]
+                  (< (* (/ word-length 5) k)
+                     i
+                     (* (/ word-length 5) (inc k)))))))
+
+
+  (f/bit-and [1 0 0] (dtt/compute-tensor [3] (fn [i] true)))
+
+
+  (let
+      [a (hd/->seed)
+       a1 (select-k-segment a 0)
+       a2 (select-k-segment a 1)
+       b (hd/->seed)
+       b1 (select-k-segment b 0)]
+    ;; [ label-segment L=2.000, ...  ]
+    ;; similarity of 0.2 then would be complete overlap
+      (hd/similarity a1 a)
+      ;; then interestingly, mixing in more segments makes
+      ;; the label overlap stay
+      ;;
+      (hd/similarity (f/+ a1 b1) a)
+      ;; and of course that would then be similar to what is mixed
+      (hd/similarity (f/+ a1 b1 a2) a)))

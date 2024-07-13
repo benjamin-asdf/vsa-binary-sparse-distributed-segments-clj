@@ -156,7 +156,9 @@
                                         2000000)))
 
 
-  ;; (calculate-activation-probability 1e4 (/ 100 1e4) 0.0009 2 2000000)
+  (calculate-activation-probability 1e4 (/ 100 1e4) 0.0009 2 2000000)
+  0.003801
+  (calculate-activation-probability 1e4 (/ 100 1e4) 0.0009 2 2000000)
   ;; 0.003872
 
   ;; for
@@ -165,6 +167,9 @@
   ;; address density = 0.0009, decoder threshold = 2
   ;; seem to be in a good balpark
   ;; (unless the calculation is wrong)
+
+
+
   )
 
 
@@ -172,7 +177,7 @@
 ;; Concrete torch implementation
 ;; ----------------------
 
-(def ^:dynamic torch-device)
+(def ^:dynamic torch-device :cpu)
 
 (do
   ;;
@@ -283,31 +288,34 @@
              hd/default-opts))
   ([content-matrix address-locations top-k read-threshold
     {:bsdc-seg/keys [segment-count segment-length N]}]
-   (let [s (torch/sum (py/get-item content-matrix
-                                   address-locations)
-                      :dim
-                      0)
-         s (torch/where (torch/ge s read-threshold)
-                        s
-                        (torch/zeros_like s))
-         summed
-           (torch/reshape s [segment-count segment-length])
-         non-zero-mask (torch/any (torch/ne summed 0) 1)
-         indices (-> summed
-                     (torch/topk (min top-k segment-length))
-                     (py.. -indices))
-         result (torch/scatter
-                  (torch/zeros [segment-count
-                                segment-length]
-                               :dtype torch/uint8
-                               :device torch-device)
-                  1
-                  indices
-                  1)]
-     (-> (torch/where non-zero-mask
-                      result
-                      (torch/zeros_like result))
-         (torch/reshape [N])))))
+   (py/with-gil
+     (let [s (torch/sum (py/get-item content-matrix
+                                     address-locations)
+                        :dim
+                        0)
+           s (torch/where (torch/ge s read-threshold)
+                          s
+                          (torch/zeros_like s))
+           summed (torch/reshape s
+                                 [segment-count
+                                  segment-length])
+           non-zero-mask (torch/any (torch/ne summed 0) 1)
+           indices (-> summed
+                       (torch/topk (min top-k
+                                        segment-length))
+                       (py.. -indices))
+           result (torch/scatter (torch/zeros
+                                   [segment-count
+                                    segment-length]
+                                   :dtype torch/uint8
+                                   :device torch-device)
+                                 1
+                                 indices
+                                 1)]
+       (-> (torch/where non-zero-mask
+                        result
+                        (torch/zeros_like result))
+           (torch/reshape [N]))))))
 
 
 (comment
@@ -466,42 +474,47 @@
   ;; within a few steps
   ;; Kanerva 1988 [2]
   ;;
-  (reduce (fn [{:keys [last-outcome address]} step]
-            (let [address (pyutils/ensure-torch
-                            address
-                            torch-device)
-                  outcome (torch->jvm (sdm-read
-                                        content-matrix
-                                        (decode
+  (py/with-gil
+    (reduce (fn [{:keys [last-outcome address]} step]
+              (let [address (pyutils/ensure-torch
+                             address
+                             torch-device)
+                    outcome (torch->jvm (sdm-read
+                                         content-matrix
+                                         (decode
                                           decoder
                                           address
                                           decoder-threshold)
-                                        top-k
-                                        read-threshold))]
-              (cond (and last-outcome
-                         (< 0.98
-                            (hd/similarity last-outcome
-                                           outcome
-                                           opts)))
+                                         top-k
+                                         read-threshold))]
+                (cond (and last-outcome
+                           (< 0.98
+                              (hd/similarity last-outcome
+                                             outcome
+                                             opts)))
                       (ensure-reduced {:last-outcome outcome
                                        :result outcome
                                        :step step})
-                    :else {:address outcome
-                           :last-outcome outcome
-                           :step step})))
-    {:address address :step 0}
-    (range 6)))
+                      :else {:address outcome
+                             :last-outcome outcome
+                             :step step})))
+            {:address address :step 0}
+            (range 6))))
 
 
 
 (comment
-  (py.. torch/cuda empty_cache)
-  (py.. torch/cuda memory_stats)
-  (py/attr-type-map torch/cuda)
+  (do
+    (System/gc)
+    (py.. torch/cuda empty_cache))
 
-
-
-  )
+  6327
+  (py/get-item (py.. torch/cuda memory_stats) "active.all.current")
+  4
+  (py/get-item (py.. torch/cuda memory_stats) "active_bytes.all.current")
+  (def t (torch/ones [1000] :device torch-device))
+  (def t nil)
+  6328)
 
 
 

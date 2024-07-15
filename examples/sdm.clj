@@ -19,11 +19,11 @@
   []
   (let [address-count (long (* 1.5 1e4))
         word-length (:bsdc-seg/N hd/default-opts)
-        address-density 0.0009
+        address-density 0.005
         ;; 0.0009
         ;; (long (/ 6 address-count))
         decoder-threshold 2
-        read-threshold 8
+        read-threshold 5
         state (atom {:content-matrix (sdm/->content-matrix
                                        address-count
                                        word-length)
@@ -407,3 +407,42 @@
 ;; multiple times, that this would happen during learning when the system decides a piece of data is important
 ;;
 ;;
+
+(comment
+  (def auto-a-memory (->auto-a-memory))
+  (def auto-a-memory nil)
+  (def T (into [] (repeatedly 1e3 #(hd/->seed))))
+  nil
+  (time (doseq [t T] (store auto-a-memory t)))
+  ;; ... you can store what you care about twice
+  ;; question: Can I approach the memeory with 0.2
+  ;; similar vector and get my stored vector out?
+  ;; address-count (long (* 1.5 1e4))
+  ;; read-threshold 8
+  ;; stored twice
+  ;;
+  (doall (for [t (take 10 T)]
+           (let [q (hd/weaken t 0.8)]
+             (some-> (lookup auto-a-memory q)
+                     (hd/similarity t)))))
+  '(1.0 nil nil nil nil nil nil nil nil 1.0)
+  (filter nil?
+          (doall (for [t T]
+                   (let [q (hd/weaken t 0.5)]
+                     (some-> (lookup auto-a-memory q)
+                             (hd/similarity t))))))
+  '()
+  ;; sharp dropoff at 0.6
+  (filter nil?
+          (doall (for [t (take 100 T)]
+                   (let [q (hd/weaken t 0.6)]
+                     (some-> (lookup auto-a-memory q)
+                             (hd/similarity t))))))
+  '(nil nil nil nil)
+  (doall (for [t (take 10 T)]
+           (let [q (hd/thin (hd/bundle t
+                                       (hd/->seed)
+                                       (hd/->seed)
+                                       (hd/->seed)))]
+             (some-> (lookup auto-a-memory q)
+                     (hd/similarity t))))))

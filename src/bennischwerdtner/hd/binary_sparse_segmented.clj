@@ -63,22 +63,48 @@
      :bsdc-seg/segment-length (/ dimensions
                                  segment-count)}))
 
+(defn ->empty
+  "Returns a 'zero vector' of hypervector lenght."
+  ([] (->empty default-opts))
+  ([{:bsdc-seg/keys [N]}]
+   (dtt/->tensor (dtype/alloc-zeros :int8 N))))
+
+(defn ->ones
+  "Returns a 'ones vector' of hypervector lenght."
+  ([] (->ones default-opts))
+  ([{:bsdc-seg/keys [N]}]
+   (dtt/->tensor (dtt/compute-tensor [N] (constantly 1) :int8))))
 
 (defn indices->hv
-  "Returns a segmented hypervector with `indices`
-  set to 1, segmentwise.
+  "Returns a segmented hypervector with `indices` set to 1, segmentwise.
 
+  See [[hv->indices]].
   "
   ([indices] (indices->hv indices default-opts))
   ([indices
     {:bsdc-seg/keys [segment-count segment-length N]
      :keys
      [tensor-opts]}]
-   (let [indices (f/+ indices
-                      (f/* (range segment-count)
-                           segment-length))
+   (let [indices (f/+ indices (f/* (range segment-count) segment-length))
          v (dtype/alloc-zeros :int8 N)]
      (doseq [i indices] (dtype/set-value! v i 1))
+     (dtt/->tensor v tensor-opts))))
+
+(defn indices->hv*
+  "Like [[indices->hv]] but [[indices]] should be a sequence of sequences.
+  Each representing the non-zero indices of a segment (which are allowed to be empty)."
+  ([indices] (indices->hv* indices default-opts))
+  ([indices
+    {:bsdc-seg/keys [segment-count segment-length N]
+     :keys [tensor-opts]}]
+   (let [v (dtype/alloc-zeros :int8 N)]
+     ;; doing this using jvm is permissable for my needs, because
+     ;; indices are so few
+     (doall (map (fn [idxes seg]
+                   (doseq [i idxes]
+                     (dtype/set-value! v (+ i seg) 1)))
+              indices
+              (f/* (range segment-count) segment-length)))
      (dtt/->tensor v tensor-opts))))
 
 (defn hv->indices
@@ -129,10 +155,11 @@
   [[thin]], [[maximally-sparse?]], [[similarity]], [[bundle]], [[bind]], [[unbind]]
   "
   ([] (->hv default-opts))
-  ([{:bsdc-seg/keys [segment-count segment-length N]}]
+  ([{:bsdc-seg/keys [segment-count segment-length N] :as opts}]
    (indices->hv (repeatedly segment-count
                             #(fm.rand/irand
-                              segment-length)))))
+                              segment-length))
+                opts)))
 
 ;; This also called a seed vector in the literature
 (def ->seed ->hv)
@@ -178,7 +205,6 @@
   ([a b] (similarity a b default-opts))
   ([a b {:bsdc-seg/keys [segment-count]}]
    (/
-    ;; (f/sum (f/bit-and a b))
     (f/sum
      (f/bit-and
       (f/not-eq 0 a)
@@ -262,7 +288,7 @@
   Output vector resembles all input vectors, unordered.
   Hence this is also called `sumset`.
   "
-  f/+)
+  (comp dtt/->tensor f/+))
 
 (defn thin-pth-modulo
   "Returns a new thinned vector derived from `a` where 1 non-zero bit per segment in `a` is left over.
@@ -307,29 +333,49 @@
   Hence the name pth-modulo.
 
   This is an example of 'Context-Dependent Thinning' (Rachkovskij 2001)."
-  ([a] (thin-pth-modulo a))
+  ([a] (thin-pth-modulo a default-opts))
   ([a
     {:as opts
      :bsdc-seg/keys [segment-count segment-length N]}]
    (let [indices
-           (->
-             (dtt/reshape a [segment-count segment-length])
-             (dtt/reduce-axis
-               (fn [segment]
-                 (let [segment-max-indices
-                         (dtype-argops/argfilter
-                           (partial =
-                                    (f/reduce-max segment))
-                           segment)
-                       ;; 'p'
-                       chosen-index
-                         (segment-max-indices
-                           (fm/mod
-                             (long (f/sum
-                                     segment-max-indices))
-                             (count segment-max-indices)))]
-                   chosen-index))))]
-     (indices->hv indices opts))))
+           (-> (dtt/reshape a
+                            [segment-count segment-length])
+               (dtt/reduce-axis
+                 (fn [segment]
+                   (let [max-value (f/reduce-max segment)]
+                     (when-not (zero? max-value)
+                       (let [segment-max-indices
+                               (dtype-argops/argfilter
+                                 (partial = max-value)
+                                 segment)
+                             ;; 'p'
+                             chosen-index
+                               (segment-max-indices
+                                 (fm/mod
+                                   (long
+                                     (f/sum
+                                       segment-max-indices))
+                                   (count
+                                     segment-max-indices)))]
+                         [chosen-index]))))
+                 -1
+                 :object))]
+     indices
+     (indices->hv* indices opts))))
+
+
+(comment
+  (let [a (->seed)] (= a (thin-pth-modulo a)))
+  true
+  (let [a (->seed)
+        b (->seed)
+        c (bundle a b)]
+    [(maximally-sparse? a) (maximally-sparse? c)
+     (maximally-sparse? (thin-pth-modulo c))
+     (similarity c (thin-pth-modulo c))
+     (similarity a (thin-pth-modulo c))
+     (similarity b (thin-pth-modulo c))])
+  [true false true 1.0 0.6 0.4])
 
 (defn thin
   "Returns a new thinned vector of `a` where 1 non-zero bit per segment in `a` is left over.
@@ -380,7 +426,7 @@
 
   (0.01 0.01 0.01 0.54)
 
-  Trust me, you'll get the toaster out of it.
+  Trust me, you'll get a toaster out of it.
 
   How many you can bundle before things water down can be labeled `capacitiy` of the bind.
   You don't need to worry if the kvp are less than 20.
@@ -510,10 +556,17 @@
   "
   Returns the `n` unit vector.
 
-  This is the vector which represents the same `bind` as a `permute` with `n`.
+  This is the vector, that when bound [[bind]] with `a`, returns the same vector as `permuting` `a` with count `n`.
+
+  (let [a (->hv)]
+   (= (bind a (unit-vector-n 3)) (permute-n a 3)))
+  => true
+
+  (let [a (->hv)]
+   (= (bind a (unit-vector-n 1)) (permute a)))
+  => true
 
   See [[permute-n]].
-
   "
   ([n] (unit-vector-n n default-opts))
   ([n
@@ -521,8 +574,11 @@
      :bsdc-seg/keys [segment-count segment-length]}]
    (indices->hv (repeatedly segment-count
                             (constantly
-                              (mod n segment-length)))
+                             (mod n segment-length)))
                 opts)))
+
+
+
 
 ;; ---------------------------------------
 ;; This is an implementation of
@@ -557,10 +613,10 @@
   and the consumer can use `bind` instead of `unbind`.
 
   (let [a (->hv)
-            b (->hv)
-            a-inv (inverse a)
-            c (bind a b)]
-        (assert (= b (bind c a-inv))))
+       b (->hv)
+       a-inv (inverse a)
+       c (bind a b)]
+   (assert (= b (bind c a-inv))))
 
   Binding yourself with your inverse results in the unit vector:
 
@@ -569,7 +625,6 @@
      (unit-vector)
       (bind a (inverse a))))
   => true
-
 
   Inverse is the inverse of itself:
 
@@ -695,8 +750,6 @@
      (bind a (bind b c -1) -1))))
 
 
-
-
 (comment
   ;; https://paperswithcode.com/paper/cognitive-modeling-and-learning-with-sparse#code
   ;; Zhonghao Yang 2023
@@ -784,20 +837,13 @@
 ;;
 
 
-
-
-
-
-
-
-
 ;; I forget how this is called in the literature,
 ;; but we can drop bits from the vector.
 ;;
 ;; Similar to bundleling with random noise,
 ;; but making it thinner.
 ;;
-;; 'thin' was taken, 'drop' is a clojure.core function
+;; 'thin' was taken, 'drop' was a clojure.core function
 ;;
 ;; 'weaken'?
 
@@ -901,14 +947,6 @@
         b (->hv)]
     [(similarity a (thin (bundle a (weaken b 0.5))))
      (similarity a (thin (bundle a b)))])
-  [0.76 0.58])
+  [0.76 0.58]
 
-
-
-
-
-;;
-;; Bundle with ratio
-;;
-;; "more of a than b"
-;;
+  )

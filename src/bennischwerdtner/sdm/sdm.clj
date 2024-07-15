@@ -169,6 +169,17 @@
   ;; (unless the calculation is wrong)
 
 
+  (calculate-activation-probability
+   1e4
+   (/ 20 1e4)
+   0.005
+   2
+   2000000)
+
+  (* 100 2.07E-4)
+
+
+
 
   )
 
@@ -260,7 +271,7 @@
                  :device torch-device))
   )
 
-(defn sdm-read
+#_(defn sdm-read
   "
 
 
@@ -299,42 +310,214 @@
            summed (torch/reshape s
                                  [segment-count
                                   segment-length])
-           non-zero-mask (torch/any (torch/ne summed 0) 1)
+           ;; non-zero-mask (torch/any (torch/ne summed
+           ;; 0) 1)
            indices (-> summed
                        (torch/topk (min top-k
                                         segment-length))
-                       (py.. -indices))
+                       ;; (py.. -indices)
+                   )
            result (torch/scatter (torch/zeros
                                    [segment-count
                                     segment-length]
                                    :dtype torch/uint8
                                    :device torch-device)
                                  1
-                                 indices
+                                 (py.. indices -indices)
                                  1)]
-       (-> (torch/where non-zero-mask
-                        result
-                        (torch/zeros_like result))
-           (torch/reshape [N]))))))
+       (torch/reshape result [N])
+       ;; (-> (torch/where non-zero-mask
+       ;;                  result
+       ;;                  (torch/zeros_like result))
+       ;;     (torch/reshape [N]))
+       ))))
 
+
+(defn sdm-read
+  "Returns a result and a confidence value.
+
+  `result`: A binary segmented hypervector reading from `address-locations`.
+  `confidence`: The normalized sum of storage counters that contribute to the result.
+
+  This repesents an approximation of the confidence of the result being an item in memory.
+  If `top-k` > 1 this would increase accordingly.
+  This can exceed 1, if counter locations are higher than 1, then an item was stored multiple times.
+
+  If close to one, the confidence is high. If close to zero, the confidence is low.
+
+  `top-k`: number of non zero bits to take from each segment.
+
+  If `top-k` == 1, the output is maximally sparse.
+  "
+  ([content-matrix address-locations top-k]
+   (sdm-read content-matrix
+             address-locations
+             top-k
+             hd/default-opts))
+  ([content-matrix address-locations top-k
+    {:bsdc-seg/keys [segment-count segment-length N]}]
+   (py/with-gil
+     (let [s (torch/sum (py/get-item content-matrix
+                                     address-locations)
+                        :dim
+                        0)
+           topk-result (-> s
+                           (torch/reshape [segment-count
+                                           segment-length])
+                           (torch/topk
+                             (min top-k segment-length)))
+           result (torch/scatter (torch/zeros
+                                   [segment-count
+                                    segment-length]
+                                   :dtype torch/uint8
+                                   :device torch-device)
+                                 1
+                                 (py.. topk-result -indices)
+                                 1)]
+       ;; {:confidence
+       ;;  (py.. (torch/sum address-locations) item)
+       ;;  }
+       {:confidence (torch/div
+                      (torch/sum (py.. topk-result -values))
+                      ;; also divide by top-k?
+                      ;;
+                      ;; scaling this with the
+                      ;; address-locations count is
+                      ;; probably taste. It turns out
+                      ;; to say high confidence, if the
+                      ;; count of address is low, when
+                      ;; the address is a 'weak' (sub
+                      ;; sparsity) hypervector. The
+                      ;; caller would have to take this
+                      ;; into account themselves.
+                      ;;
+                      (* segment-count
+                         (py.. (torch/sum address-locations)
+                               item)))
+        :result (torch/reshape result [N])}))))
 
 (comment
-  (sdm-read (write! (->content-matrix 5 9)
-                    (torch/tensor [true true false false
-                                   true]
-                                  :dtype torch/bool
-                                  :device torch-device)
-                    (torch/tensor [0 0 1 0 0 1 0 0 1]
-                                  :device
-                                  torch-device))
-            (torch/tensor [true true false false true]
-                          :dtype torch/bool
-                          :device torch-device)
-            0
-            1
-            {:bsdc-seg/N 9
-             :bsdc-seg/segment-count 3
-             :bsdc-seg/segment-length 3}))
+
+  (binding [torch-device :cpu]
+    (let [{:keys [confidence result]}
+          (sdm-read
+           ;; content matrix
+           (torch/tensor [[0 0 1 0]
+                          [0 0 1 0]])
+           ;; activations (y)
+           (torch/tensor [true true])
+           1
+           {:bsdc-seg/N 4
+            :bsdc-seg/segment-count 2
+            :bsdc-seg/segment-length 2})]
+      (and (torch/equal (torch/tensor 0.5) confidence)
+           (torch/equal (torch/tensor [1 0 1 0]) result))
+      ;; (torch/sum confidence)
+      ))
+
+
+  (binding
+      [torch-device :cpu]
+      (let [N (* 2 (inc (rand-int 5)))
+            segment-count 2
+            segment-length (int (/ N segment-count))
+            {:keys [confidence result]}
+            (sdm-read
+             ;; content matrix
+             (py.. (torch/ge (torch/rand [5 N]) (rand 0.5))
+               (to :dtype torch/float16))
+             ;; activations (y)
+             (torch/ge (torch/randn [5]) 0.5)
+             1
+             {:bsdc-seg/N N
+              :bsdc-seg/segment-count segment-count
+              :bsdc-seg/segment-length segment-length})]
+        ;; (and (torch/equal (torch/tensor 1) confidence)
+        ;;      (torch/equal (torch/tensor [1 0 1 0])
+        ;;      result))
+        ;; (torch/sum confidence)
+        [confidence result]))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  (sdm-read
+   (write!
+    (->content-matrix 5 10)
+    (torch/tensor
+     [true true false false true]
+     :dtype torch/bool
+     :device torch-device)
+    (torch/tensor
+     [0 0 1 0 0
+      1 0 0 1 0]
+     :device torch-device))
+   (torch/tensor
+    [true true false false true]
+    :dtype torch/bool
+    :device torch-device)
+   1
+   {:bsdc-seg/N 10
+    :bsdc-seg/segment-count 2
+    :bsdc-seg/segment-length 5})
+
+
+
+  (torch/topk
+   (torch/tensor [[0 0 0] [0 0 0]])
+   1)
+
+
+  (py.. result size)
+  ;; torch.Size([2, 5])
+  (py.. non-zero-mask size)
+
+  (torch/where non-zero-mask
+               result
+               (torch/zeros_like result))
+
+  (torch/where
+   (torch/tensor [true false])
+   (torch/tensor [[2 4]
+                  [3 4]])
+   (torch/zeros [2]))
+
+
+  (sdm-read
+   (write!
+    (->content-matrix 5 10)
+    (torch/tensor
+     [true true false false true]
+     :dtype torch/bool :device torch-device)
+    (torch/tensor
+     [0 0 1 0 0
+      1 0 0 1 0]
+     :device torch-device))
+   (torch/tensor
+    [true true false false true]
+    :dtype torch/bool
+    :device torch-device)
+   1
+   0
+   {:bsdc-seg/N 10
+    :bsdc-seg/segment-count 2
+    :bsdc-seg/segment-length 5}))
 
 (defn ensure-cpu [tens]
   (py.. tens (to "cpu")))
@@ -517,9 +700,90 @@
   6328)
 
 
+(comment
+
+  (do
+    (do (System/gc) (py.. torch/cuda empty_cache))
+  (alter-var-root #'hd/default-opts
+                  (constantly
+                    (let [dimensions (long 1e4)
+                          segment-count 20]
+                      {:bsdc-seg/N dimensions
+                       :bsdc-seg/segment-count segment-count
+                       :bsdc-seg/segment-length
+                         (/ dimensions segment-count)})))
+  (let [address-count (long 1e4)
+        word-length (:bsdc-seg/N hd/default-opts)
+        address-density 0.005
+        decoder-threshold 2
+        state {:content-matrix (->content-matrix
+                                 address-count
+                                 word-length)
+               :decoder (->address-decoder
+                          {:address-count address-count
+                           :address-density address-density
+                           :word-length word-length})}
+        t (hd/->hv)
+        t-prime (hd/weaken t 0.5)
+        tb (hd/thin (hd/bundle t (hd/->hv)))
+        T (repeatedly 1e3 #(hd/->hv))
+        ;; if I don't thin, I get the t out
+        tc (hd/bundle t (hd/->hv) (hd/->hv) (hd/->hv))
+        addresses
+          (decode (:decoder state) t decoder-threshold)]
+    [(torch/sum addresses)
+     (torch/sum
+       (decode (:decoder state) t-prime decoder-threshold))
+     (torch/sum
+       (decode (:decoder state) tb decoder-threshold))]
+    (auto-associate! (:content-matrix state)
+                     t
+                     (:decoder state)
+                     decoder-threshold)
+    (doseq
+        [data T]
+        (auto-associate! (:content-matrix state)
+                         data
+                         (:decoder state)
+                         decoder-threshold))
+    [(let [r (sdm-read (:content-matrix state) addresses 1)]
+       [:sim-t-res
+        (hd/similarity (torch->jvm (:result r)) t)
+        :confidence (py.. (:confidence r) item)])
+     ;; prime
+     (let [r (sdm-read (:content-matrix state)
+                       (decode (:decoder state)
+                               t-prime
+                               decoder-threshold)
+                       1)]
+       [:sim-t-prime-res
+        (hd/similarity (torch->jvm (:result r)) t)
+        :confidence (py.. (:confidence r) item)])
+     (let [r (sdm-read (:content-matrix state)
+                       (decode (:decoder state)
+                               tb
+                               decoder-threshold)
+                       1)]
+       [:sim-tb (hd/similarity (torch->jvm (:result r)) t)
+        :confidence (py.. (:confidence r) item)])
+     (let [r (sdm-read (:content-matrix state)
+                       (decode (:decoder state)
+                               tc
+                               decoder-threshold)
+                       1)]
+       [:sim-tc (hd/similarity (torch->jvm (:result r)) t)
+        :confidence (py.. (:confidence r) item)])]))
 
 
+  [[:sim-t-res 1.0 :confidence 1.0]
+   [:sim-t-prime-res 1.0 :confidence 1.0]
+   [:sim-tb 1.0 :confidence 0.13636362552642822]
+   [:sim-tc 0.0 :confidence 0.0]]
 
+  [[:sim-t-res 1.0 :confidence 1.0]
+   [:sim-t-prime-res 1.0 :confidence 1.0]
+   ;; intermediate confidence when made from equal parts
+   [:sim-tb 1.0 :confidence 0.3589743673801422]])
 
 
 

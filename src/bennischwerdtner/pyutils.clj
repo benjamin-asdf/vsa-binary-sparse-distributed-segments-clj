@@ -29,3 +29,6 @@
                            :dtype torch/float16
                            :device torch-device))
          (= (py/python-type tens) :tensor) tens)))
+
+
+(defn torch->jvm [tens] (py.. tens (to "cpu") (numpy)))

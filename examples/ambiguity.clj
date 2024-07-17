@@ -7,7 +7,11 @@
 ;; ------------------------
 ;; Ambiguity primitives
 ;; ----------------------
-
+;;
+;; The Cortex is an information mixing machine - V. Braitenberg
+;;
+;;
+;;
 
 (defn non-sense
   "Returns a fresh random hypervector.
@@ -49,12 +53,12 @@
 
   See [[mostly]], [[nothing]], [[roughly]].
   "
-  ([a] (vanishingly 0.2))
+  ([a] (vanishingly a 0.5))
   ([a amount-of-a]
    (hd/weaken a (- 1 amount-of-a))))
 
 (comment
-
+  (let [a (create)] (hd/similarity a (vanishingly a)))
   (for [n (range 5)]
     (let [a (create)
           amount (rand)
@@ -103,7 +107,9 @@
   (let [a (create)]
     [(hd/similarity a (roughly a 0.2))
      (hd/similarity a (roughly a 1))])
-  [0.9 0.5])
+  [0.9 0.5]
+
+  )
 
 (comment
   (for [n (range 5)]
@@ -167,7 +173,7 @@
 (defn nothing
   "Returns the empty hypervector.
 
-  Nothing is similar to no other hypervector, not even itself.
+  'Nothing' is similar to no other hypervector, not even itself.
   (because similarity is overlap of non 0 bits here).
 
   It is still [[=]] to iteslf.
@@ -181,7 +187,7 @@
   (hd/similarity (nothing) (create))
   0.0
 
-  See [[hd/similarity]], [[non-sense]].
+  See [[hd/similarity]], [[non-sense]], [[everything]]
   "
   []
   (hd/->empty))
@@ -199,7 +205,8 @@
 ;; ... 'everything' would also make sense
 ;; If used as a permutation wiring, perhaps this should be equal to a fully connected neural net layer
 (defn everything
-  "Returns a maximally dense hypervector that is similar to all other hypervectors.
+  "Returns a maximally dense hypervector that is similar all hypervectors.
+  Except if they are super sparse, like 'nothing'.
 
   This would also activate every single address location of a sparse distributed memory,
   if used as address word.
@@ -207,13 +214,26 @@
   (let [a (non-sense)
         b (non-sense)
         c (neither a b)]
-    [(hd/similarity a (everything))
+    [(hd/similarity (neither a b) (everything))
      (hd/similarity b (everything))
-     (hd/similarity c (everything))])
-  [1.0 1.0 1.0]
+     (hd/similarity c (everything))
+     ;; not even everything is similar to nothing
+     (hd/similarity (nothing) (everything))])
+[1.0 1.0 1.0 0.0]
 
 
-  See [[hd/similarity]].
+  See [[hd/similarity]], [[nothing]], [[non-sense]].
   "
   []
   (hd/->ones))
+
+(comment
+  (let [a (non-sense)
+        b (non-sense)
+        c (neither a b)]
+    [(hd/similarity (neither a b) (everything))
+     (hd/similarity b (everything))
+     (hd/similarity c (everything))
+     ;; not even everything is similar to nothing
+     (hd/similarity (nothing) (everything))])
+  [1.0 1.0 1.0 0.0])

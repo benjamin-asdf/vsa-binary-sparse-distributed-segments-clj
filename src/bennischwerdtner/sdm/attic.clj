@@ -450,3 +450,40 @@
           (decode-address m (hd/->hv) 2)
           (write m d d 2)
           (lookup m d 1 2)))))
+
+(comment
+  (binding [torch-device :cpu]
+    (let [addr (torch/tensor [0 1 1 0 1] :dtype torch/float16)
+          word (torch/tensor [1 1 0 0 1] :dtype torch/float16)
+          C (torch/sparse_coo_tensor :size [5 5]
+                                     :device torch-device
+                                     :dtype torch/float32)
+          counter-max 3]
+      (let [activated-locations (py.. (torch/nonzero addr)
+                                      (view -1))
+            word-nonzero (py.. (torch/nonzero word) (view -1))
+            indices
+            (py..
+             (torch/cartesian_prod activated-locations
+                                   word-nonzero)
+             (t))
+            values (torch/ones (py.. indices (size 1)))
+            update (torch/sparse_coo_tensor indices values (py.. C size))
+            C
+            ;; (to_dense)
+
+            (py.. C (add_ update) (coalesce))
+
+            ]
+        ;; (py.. C (add_ update))
+        ;; (py.. update (to_dense))
+        ;; (py.. C
+        ;;   (add_ update)
+        ;;   (coalesce)
+        ;;   (to_dense))
+        (py.. C values (clamp_ 0 counter-max))
+
+        (py.. C (to_dense)))))
+
+
+  )

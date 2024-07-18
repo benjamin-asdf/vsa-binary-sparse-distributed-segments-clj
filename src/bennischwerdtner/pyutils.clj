@@ -17,18 +17,28 @@
   (require-python '[numpy :as np])
   (require-python '[torch :as torch]))
 
+
+(def ^:dynamic *torch-device* :cpu)
+
+(alter-var-root
+  #'*torch-device*
+  (constantly
+    (if (py.. torch/cuda (is_available)) :cuda :cpu)))
+
+
 (defn ensure-torch
+  ([tens] (ensure-torch tens *torch-device*))
   ([tens torch-device]
    (cond (dtt/tensor? tens)
            (let [t-numpy (numpy/zeros [(count tens)]
                                       :dtype
-                                      numpy/int16)]
+                                      numpy/float32)]
              (dtt/tensor-copy! tens
                                (dtt/ensure-tensor t-numpy))
              (torch/tensor t-numpy
-                           :dtype torch/float16
+                           :dtype torch/float32
                            :device torch-device))
-         (= (py/python-type tens) :tensor) tens)))
+           (= (py/python-type tens) :tensor) tens)))
 
 
 (defn torch->jvm [tens] (py.. tens (to "cpu") (numpy)))

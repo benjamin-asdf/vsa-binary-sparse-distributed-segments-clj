@@ -168,8 +168,6 @@
                                         2000000)))
 
 
-
-
   (-
    (* 100 (ideal-p 1e4 1e6))
    (* 100
@@ -202,9 +200,7 @@
    (/ 20 1e4)
    0.005
    2
-   2000000)
-
-  )
+   2000000))
 
 
 ;; ----------------------
@@ -253,7 +249,26 @@
     (to torch/float16)))
 
 
-
+;; kinda funny that many rows are never activated
+;; in lue of the amount of granule cells, you can wonder
+(defn ->address-matrix-coo
+  [address-count word-length density]
+  (let [nse (long (* address-count word-length density))]
+    (let [row-indices (torch/randint 0
+                                     address-count
+                                     [nse]
+                                     :device
+                                     torch-device)
+          col-indices (torch/randint 0
+                                     word-length
+                                     [nse]
+                                     :device
+                                     torch-device)
+          i (torch/stack [row-indices col-indices])
+          v (torch/ones [nse]
+                        :dtype torch/float32
+                        :device torch-device)]
+      (torch/sparse_coo_tensor i v))))
 
 
 (comment
@@ -327,6 +342,17 @@
         (py.. (to_dense))))
 
 
+  (let [addr (torch/tensor [0 1 1] :dtype torch/float16)
+        word (torch/tensor [0 1 0 0 1] :dtype torch/float16)
+        indices-address (torch/nonzero addr)
+        indices-word (torch/nonzero word)]
+
+
+
+
+    )
+
+
 
 
   (let
@@ -352,10 +378,6 @@
 
 
 
-
-
-
-
   (let [address-count (long 1e6)
         address-word-length (long 1e4)
         address-density 0.0002
@@ -373,11 +395,76 @@
           (torch/randint 0 address-word-length [nse] :device torch-device)
           i (py/set-item! indices [1] second-row-indices)
           v (torch/ones [nse] :dtype torch/float32 :device torch-device)]
-      (torch/sparse_coo_tensor i v)))
+      (py..
+          (torch/sparse_coo_tensor i v)
+          (coalesce)
+          ;; (sum)
+          (select 0 0)
+          (to_dense))))
 
 
 
-  (def address-matr *1)
+  (let [address-count (long 1e6)
+        address-word-length (long 1e4)
+        address-density 0.0002
+        nse (long (* address-count
+                     address-word-length
+                     address-density))]
+    ;; nse
+    nse
+    (let [row-indices (torch/randint 0
+                                     address-count
+                                     [nse]
+                                     :device
+                                     torch-device)
+          col-indices (torch/randint 0
+                                     address-word-length
+                                     [nse]
+                                     :device
+                                     torch-device)
+          i (torch/stack [row-indices col-indices])
+          v (torch/ones [nse]
+                        :dtype torch/float32
+                        :device torch-device)]
+      (py.. (torch/sparse_coo_tensor i v)
+        (coalesce)
+        ;; (sum)
+        (select 0 0)
+        (to_dense)
+        (sum))))
+
+  (def T (repeatedly 1e3 #(hd/->hv)))
+
+  (time
+   (let [address-count (long 1e4)
+         address-word-length (long 1e4)
+         address-density 0.001
+         addr-matr (->address-matrix-coo address-count
+                                         address-word-length
+                                         address-density)
+         content-matrix (->content-matrix-coo
+                         address-count
+                         address-word-length)
+         _ (write-coo!
+            content-matrix
+            (decode-addresses addr-matr (first T) 2)
+            (pyutils/ensure-torch (first T) torch-device))]
+     (doseq [t T]
+       (write-coo! content-matrix
+                   (decode-addresses addr-matr t 2)
+                   (pyutils/ensure-torch t torch-device)))
+     ;; (sdm-read-coo
+     ;;  content-matrix
+     ;;  (decode-addresses addr-matr (first T) 2)
+     ;;  1)
+     ))
+
+
+
+
+
+
+
   (time (torch/sum (decode-addresses address-matr (hd/->hv) 2)))
 
 
@@ -393,12 +480,40 @@
                                :dtype torch/float32)))
 
 
-  (let
-      [C (->content-matrix-coo 5 10)
-       address-locations (torch/tensor [1 1 0 0 0])
-       input-word (torch/tensor [1 1 0 0 0 0 0 0 1 1])
-       C (write-coo! C address-locations input-word)]
-    (py/get-item C [address-locations]))
+  (let [C (->content-matrix-coo 5 10)
+        address-locations (torch/tensor [1 1 0 0 0]  :device torch-device)
+        input-word (torch/tensor [1 1 0 0 0 0 0 0 1 1] :device torch-device)
+        C (write-coo! C address-locations input-word)
+        addr-indices (torch/squeeze (torch/nonzero address-locations) 1)]
+    (py..
+        (torch/index_select C 0 addr-indices)
+        (to_dense))
+    (py..
+        (torch/sum (torch/index_select C 0 addr-indices) 0)
+        (to_dense)))
+  (def x (torch/randn 5 4))
+
+
+  x
+  (def indices (torch/tensor [0 2]))
+  [x (torch/index_select x 0 indices)]
+  [x (torch/index_select x 0 (torch/squeeze (torch/nonzero (torch/tensor [1 1 0 0 1])) 1))]
+
+
+  (let [C (->content-matrix-coo 5 10)
+        address-locations (torch/tensor [1 1 0 0 0]  :device torch-device)
+        input-word (torch/tensor [0 1 0 0 0
+                                  0 0 0 0 1] :device torch-device)
+        C (write-coo! C address-locations input-word)]
+    (read-coo-1 C address-locations)
+    (sdm-read-coo C address-locations 1 {:bsdc-seg/segment-count 2
+                                         :bsdc-seg/segment-length 5
+                                         :bsdc-seg/N 10}))
+
+
+
+
+
 
 
 
@@ -493,8 +608,6 @@
 
   (torch/sum (torch/ge (torch/randn [(long 1e3)] :device torch-device :dtype torch/float32) 0.9))
 
-
-
   (write!
    content-matrix
    (decode-adresses address-matr (first T) 2)
@@ -507,8 +620,6 @@
 
   ;; ~ 200 address activated per address
   (torch/sum (decode-addresses address-matr (first T) 2)))
-
-
 
 
 (defn ->address-locations
@@ -537,15 +648,13 @@
 (defn decode-addresses
   [address-matrix address decoder-threshold]
   ;; d
-  (let [address (py.. (pyutils/ensure-torch address
-                                            torch-device)
-                  (to :dtype torch/float32))
+  (let [address (pyutils/ensure-torch address torch-device)
         inputs (torch/mv address-matrix address)
         activations (torch/ge inputs
                               (torch/tensor
-                               decoder-threshold
-                               :device torch-device
-                               :dtype torch/float32))]
+                                decoder-threshold
+                                :device torch-device
+                                :dtype torch/float32))]
     ;; y
     activations))
 
@@ -558,29 +667,17 @@
   ;; tensor([False,  True,  True], device='cuda:0')
   )
 
-
-
 (defn write!
   [content-matrix address-locations input-word]
-  ;; (let
-
-  ;;     [input-word (pyutils/ensure-torch input-word torch-device)]
-  ;;     (py/set-item!
-  ;;      content-matrix
-  ;;      address-locations
-  ;;      (py.. (py/get-item content-matrix address-locations)
-  ;;        (add_ input-word)
-  ;;        (clamp_ :min 0 :max counter-max))))
-
-
   (let
-      [input-word (pyutils/ensure-torch input-word torch-device)]
-      (py/set-item!
-       content-matrix
-       address-locations
-       (py.. (py/get-item content-matrix address-locations)
-         (add_ input-word)
-         (clamp_ :min 0 :max counter-max)))))
+      [input-word (pyutils/ensure-torch input-word
+                                        torch-device)]
+      (py/set-item! content-matrix
+                    address-locations
+                    (py.. (py/get-item content-matrix
+                                       address-locations)
+                      (add_ input-word)
+                      (clamp_ :min 0 :max counter-max)))))
 
 (defn ->writing-coo
   [{:keys [address-count address-word-length]}
@@ -611,25 +708,94 @@
 (defn write-coo!
   [content-matrix address-locations input-word]
   (let [writes (->writing-coo
-                 {:address-count
-                  (py.. content-matrix (size 0))
-                  :address-word-length
-                  (py.. content-matrix (size 1))}
+                 {:address-count (py.. content-matrix
+                                       (size 0))
+                  :address-word-length (py.. content-matrix
+                                             (size 1))}
                  address-locations
                  input-word)
-        content-matrix (torch/add content-matrix writes)
+        content-matrix (py.. content-matrix (add_ writes))
         content-matrix (py.. content-matrix (coalesce))
-        ;; content-matrix (py.. content-matrix
-        ;; (to_dense))
         _ (py.. (py.. content-matrix values)
                 (clamp_ 0 counter-max))]
     content-matrix))
 
+(defn read-coo-1
+  [content-matrix address-locations]
+  (let [addr-indices (torch/squeeze
+                      (torch/nonzero address-locations) 1)]
+    (py.. (torch/sum (torch/index_select content-matrix
+                                         0
+                                         addr-indices)
+                     0)
+      (to_dense))))
 
+(defn sdm-read-coo
+  "Returns a result and a confidence value.
 
+  `result`: A binary segmented hypervector reading from `address-locations`.
+  `confidence`: The normalized sum of storage counters that contribute to the result.
 
+  This repesents an approximation of the confidence of the result being an item in memory.
+  If `top-k` > 1 this would increase accordingly.
+  This can exceed 1, if counter locations are higher than 1, then an item was stored multiple times.
 
+  If close to one, the confidence is high. If close to zero, the confidence is low.
 
+  `top-k`: number of non zero bits to take from each segment.
+
+  If `top-k` == 1, the output is maximally sparse.
+  "
+  ([content-matrix address-locations top-k]
+   (sdm-read-coo content-matrix
+             address-locations
+             top-k
+             hd/default-opts))
+  ([content-matrix address-locations top-k
+    {:bsdc-seg/keys [segment-count segment-length N]}]
+   (py/with-gil
+     (let [
+           s (read-coo-1 content-matrix address-locations)
+
+           topk-result (-> s
+                           (torch/reshape [segment-count segment-length])
+                           (torch/topk (min top-k segment-length)))
+           result (torch/scatter (torch/zeros
+                                  [segment-count
+                                   segment-length]
+                                  :dtype torch/float32
+                                  :device torch-device)
+                                 1
+                                 (py.. topk-result -indices)
+                                 1)
+           address-location-count
+           (py.. (torch/sum address-locations) item)]
+       {:address-location-count address-location-count
+        :confidence (if (zero? address-location-count)
+                      0
+                      (py.. (torch/div
+                              (torch/sum (py.. topk-result
+                                               -values))
+                              ;; also divide by top-k?
+                              ;;
+                              ;; scaling this with the
+                              ;; address-locations
+                              ;; count is probably
+                              ;; taste. It turns out to
+                              ;; say high confidence,
+                              ;; if the count of
+                              ;; address is low, when
+                              ;; the address is a
+                              ;; 'weak' (sub sparsity)
+                              ;; hypervector. The
+                              ;; caller would have to
+                              ;; take this into account
+                              ;; themselves.
+                              ;;
+                              (* segment-count
+                                 address-location-count))
+                            item))
+        :result (torch/reshape result [N])}))))
 
 
 
@@ -686,10 +852,8 @@
                                  (py.. topk-result -indices)
                                  1)
            address-location-count
-             (py.. (torch/sum address-locations) item)]
-       ;; {:confidence
-       ;;  (py.. (torch/sum address-locations) item)
-       ;;  }
+             (py.. (torch/nonzero address-locations)
+                   (size 0))]
        {:address-location-count address-location-count
         :confidence (if (zero? address-location-count)
                       0
@@ -802,10 +966,13 @@
 
 
 ;; not sure yet
+
 (defprotocol SDM
   (known?
     [this address]
     [this address decoder-threshold])
+  (lookup-1
+    [this address-locations top-k])
   (lookup
     [this address top-k]
     [this address top-k decoder-threshold])
@@ -814,7 +981,69 @@
     [this address top-k decoder-threshold])
   (write
     [this address content]
-    [this address content decoder-threshold]))
+    [this address content decoder-threshold])
+  (write-1
+    [this address-locations content])
+  (decode-address
+    [this address decoder-threshold]))
+
+(defn dense-sdm
+  [{:keys [address-count word-length address-density]}]
+  (let [content-matrix (->content-matrix address-count
+                                         word-length)
+        address-matrix (->address-matrix address-count
+                                         word-length
+                                         address-density)]
+    (reify
+      SDM
+        (decode-address [this address decoder-threshold]
+          (decode-addresses address-matrix
+                            address
+                            decoder-threshold))
+        (write-1 [this address-locations content]
+          (write! content-matrix address-locations content))
+        (write [this address content decoder-threshold]
+          (write-1
+            this
+            (decode-address this address decoder-threshold)
+            content))
+        (lookup-1 [this address-locations top-k]
+          (sdm-read content-matrix address-locations top-k))
+        (lookup [this address top-k decoder-threshold]
+          (lookup-1
+            this
+            (decode-address this address decoder-threshold)
+            top-k)))))
+
+(comment
+  (binding [torch-device :cpu]
+    (do (alter-var-root
+         #'hd/default-opts
+         (constantly (let [dimensions 25
+                           segment-count 5]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+        (let [m (dense-sdm {:address-count 100
+                            :address-density 0.2
+                            :word-length 25})
+              d (hd/->hv)]
+          (decode-address m (hd/->hv) 2)
+          (write m d d 2)
+          (lookup m d 1 2)
+          (hd/similarity d
+                         (torch->jvm (:result
+                                      (lookup m d 1 2))))))))
+
+
+
+
+
+
+
+
+
 
 
 
@@ -872,12 +1101,6 @@
   [{:as state :keys
     [t delay-index t->activations k-delays]}
    activated-locations]
-  ;; (def state state)
-  ;; (def t t)
-  ;; (def delay-index delay-index)
-  ;; (def t->activations t->activations)
-  ;; (def activated-locations activated-locations)
-  ;; (def k-delays k-delays)
   (let [activated-locations
           (if-not (dtt/tensor? activated-locations)
             (pyutils/torch->jvm (torch/squeeze

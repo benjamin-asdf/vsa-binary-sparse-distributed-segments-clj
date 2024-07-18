@@ -370,3 +370,83 @@
 
   (hd/similarity (second T) (torch->jvm (:read-result outcome)))
   (k-fold-active-locations (:decoder-state outcome)))
+
+
+(defprotocol SDM
+  (known?
+    [this address]
+    [this address decoder-threshold])
+  (lookup-1
+    [this address-locations top-k])
+  (lookup
+    [this address top-k]
+    [this address top-k decoder-threshold])
+  (converged-lookup
+    [this address top-k]
+    [this address top-k decoder-threshold])
+  (write
+    [this address content]
+    [this address content decoder-threshold])
+  (write-1
+    [this address-locations content])
+  (decode-address
+    [this address decoder-threshold]))
+
+(defn mem-sdm
+  [{:keys [address-count word-length address-density]}]
+  (let [addresses (atom {})
+        content-matrix (->content-matrix address-count word-length)
+
+        ]
+    (reify
+      SDM
+        (decode-address [this address decoder-threshold]
+
+          (torch/tensor
+           (into
+            []
+            (or (get @addresses address)
+                (let [addrs (into #{}
+                                  (repeatedly
+                                   10
+                                   #(fm.rand/irand
+                                     0
+                                     address-count)))]
+                  (swap! addresses assoc address addrs)
+                  addrs)))
+           :dtype
+           torch/long))
+        (write-1 [this address-locations content]
+          (write! content-matrix address-locations content))
+        (write [this address content decoder-threshold]
+          (write-1
+            this
+            (decode-address this address decoder-threshold)
+            content))
+        (lookup-1 [this address-locations top-k]
+          (sdm-read content-matrix address-locations top-k))
+        (lookup [this address top-k decoder-threshold]
+          (lookup-1
+            this
+            (decode-address this address decoder-threshold)
+            top-k)))))
+
+
+
+(comment
+  (binding [torch-device :cpu]
+    (do (alter-var-root
+          #'hd/default-opts
+          (constantly (let [dimensions 25]
+                        {:bsdc-seg/N dimensions
+                         :bsdc-seg/segment-count
+                           segment-count
+                         :bsdc-seg/segment-length
+                           (/ dimensions segment-count)})))
+        (let [m (mem-sdm {:address-count 100
+                          :address-density 0.2
+                          :word-length 25})
+              d (hd/->hv)]
+          (decode-address m (hd/->hv) 2)
+          (write m d d 2)
+          (lookup m d 1 2)))))

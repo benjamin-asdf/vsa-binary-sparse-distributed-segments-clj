@@ -40,5 +40,9 @@
                            :device torch-device))
            (= (py/python-type tens) :tensor) tens)))
 
+(defn torch-memory-size
+  [t]
+  (* (py.. t (element_size)) (py.. t (numel))))
+
 
 (defn torch->jvm [tens] (py.. tens (to "cpu") (numpy)))

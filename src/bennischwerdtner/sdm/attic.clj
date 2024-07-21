@@ -487,3 +487,471 @@
 
 
   )
+
+
+(comment
+
+
+  ;; =========================
+  ;; k fold sdm
+  ;; =========================
+  ;;
+  ;; Pentti Kanerva /Sparse Distributed Memory/, 1988
+  ;;
+  ;; - this requires us to add a bookeeping
+  ;; 1. Each hard location has an associated hard delay (k-delay)
+  ;; 2. When activating locations (should be for reading and writing),
+  ;; - decode addresses like usual
+  ;; - read or write at time step t0, using only address t0 locations
+  ;; - in the next timestep address t1 locations are active (in addition to any other)
+  ;;   I.e. the active locations is the union of active locations, which might be the locations from a
+  ;;   j steps in the past.
+  ;; -
+  ;;
+
+
+
+  ;; in k-fold memory, it is sufficient to
+  ;; stochastically allocate 0,1,2,...k-delays to
+  ;; addresses. Since address decoding is stochastic,
+  ;; you get a mix of delayed address locations.
+  (defn ->address-delays
+    "Returns `addresses-count` address delays distributed over `k-delays`.
+
+  "
+    [address-count k-delays]
+    ;; (torch/randint k-delays [address-count] :dtype
+    ;; torch/uint8 :device *torch-device*)
+    (dtt/clone (dtt/compute-tensor [address-count]
+                                   (fn [_]
+                                     (fm.rand/irand k-delays))
+                                   :int8)))
+
+  (comment
+    (->address-delays 10 5))
+
+  ;; this whole address bookeeping should not be so many since addresses are so sparse...
+  ;; We can do this on jvm and upgrade when needed
+
+  (defn ->address-state
+    [delay-index k-delays]
+    {:delay-index delay-index
+     :k-delays k-delays
+     :t 0
+     ;; keeping track of the future
+     :t->activations {}})
+
+  (defn with-activations
+    [{:as state :keys
+      [t delay-index t->activations k-delays]}
+     activated-locations]
+    (let [activated-locations
+          (if-not (dtt/tensor? activated-locations)
+            (pyutils/torch->jvm (torch/squeeze
+                                 (torch/nonzero
+                                  activated-locations)))
+            activated-locations)]
+      (assoc state
+             :t->activations
+             (reduce (fn [t->activations [i-activation k-delay]]
+                       (update-in t->activations
+                                  [(+ t k-delay)]
+                                  (fnil conj #{})
+                                  i-activation))
+                     t->activations
+                     (map vector
+                          activated-locations
+                          (dtt/select delay-index activated-locations)))))
+    ;; (-> k-fold-active-locations)
+    )
+
+  (defn indices->address-locations
+    [address-count indices]
+    (->address-locations
+     address-count
+     (torch/tensor
+      (into [] indices)
+      :dtype torch/long
+      :device *torch-device*)))
+
+  (defn k-fold-active-locations
+    [{:keys [t t->activations delay-index]}]
+    (indices->address-locations
+     (dtype/ecount delay-index)
+     (t->activations t)))
+
+  (defn k-fold-step
+    [{:as state :keys [t k-delays]}]
+    (-> state
+        (update :t->activations dissoc t)
+        ;;
+        ;; I guess you have several options here. In this
+        ;; case, this address time flow is circular
+        ;;
+        ;; In another version, I want to keep the history
+        ;; around for going the other way etc.
+        ;;
+        ;;
+        (update :t inc))))
+
+
+
+(comment
+
+  (require-python '[builtins])
+  (def t (torch/randn [5 3]))
+  [t (py/get-item
+      t
+      [[0 1]
+       (builtins/slice nil)])]
+
+  [t
+   (py/get-item t
+                [(torch/tensor [true false true false false]
+                               :dtype
+                               torch/bool)
+                 (builtins/slice nil)])]
+
+  )
+
+;; --------------------------------------
+
+(defprotocol KFoldAddressDecoder
+  (decode-and-step! [this address decoder-threshold])
+  (clear-activations [this])
+  (get-state [this]))
+
+(defn ->k-fold-address-decoder
+  [{:as opts
+    :keys [address-count word-length address-density
+           k-delays]}]
+  (let [decoder (->address-decoder opts)
+        delay-index (->address-delays address-count
+                                      k-delays)
+        state (atom (->address-state delay-index k-delays))]
+    (reify
+      KFoldAddressDecoder
+        (get-state [this] @state)
+        (decode-and-step! [this address decoder-threshold]
+          (let [new-locations
+                  (decode this address decoder-threshold)
+                s (with-activations @state new-locations)
+                activations (k-fold-active-locations s)]
+            (reset! state (k-fold-step s))
+            activations))
+        (clear-activations [_]
+          (reset! state (->address-state delay-index
+                                         k-delays)))
+      AddressDecoder
+        (decode [this address decoder-threshold]
+          (decode decoder address decoder-threshold)))))
+
+(comment
+
+  (let [address-count 100
+        word-length (:bsdc-seg/N hd/default-opts)
+        address-density 0.05
+        decoder-threshold 2
+        T (repeatedly 100 #(hd/->hv))
+        history (atom [])
+        decoder (->k-fold-address-decoder
+                 {:address-count address-count
+                  :address-density address-density
+                  :k-delays 5
+                  :word-length word-length})
+
+        _  (decode-and-step! decoder (first T) 2)
+        s1 (get-state decoder)
+        _ (decode-and-step! decoder (first T) 2)
+        s2 (get-state decoder)
+        _ (decode-and-step! decoder (first T) 2)
+        s3 (get-state decoder)]
+    [[(count (-> s1 :t->activations (get 2)))
+      (count (-> s2 :t->activations (get 2)))
+      (count (-> s3 :t->activations (get 2)))
+      (clojure.set/intersection
+       (-> s1 :t->activations (get 2))
+       (-> s2 :t->activations (get 2))
+       (-> s3 :t->activations (get 2)))]
+     [(count (-> s1 :t->activations (get 3)))
+      (count (-> s2 :t->activations (get 3)))
+      (count (-> s3 :t->activations (get 3)))
+      (clojure.set/intersection
+       (-> s1 :t->activations (get 3))
+       (-> s2 :t->activations (get 3))
+       (-> s3 :t->activations (get 3)))]])
+  ;; [[20 37 0 nil] [25 45 62 #{0 24 92 48 75 99 31 91 33 13 41 64 51 3 66 97 68 83 53 38 30 10 80 8 84}]]
+
+
+  (do
+    (do (System/gc) (py.. torch/cuda empty_cache))
+    (alter-var-root #'hd/default-opts
+                    (constantly
+                     (let [dimensions (long 1e4)
+                           segment-count 20]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+    (let [address-count (long 1e3)
+          word-length (:bsdc-seg/N hd/default-opts)
+          address-density 0.03
+          decoder-threshold 2
+          state {:content-matrix (->content-matrix
+                                  address-count
+                                  word-length)
+                 :decoder (->k-fold-address-decoder
+                           {:address-count address-count
+                            :address-density address-density
+                            :k-delays 5
+                            :word-length word-length})}
+          T (repeatedly 1e3 #(hd/->hv))
+          history (atom [])]
+      (doseq [data (take 5 T)]
+        (swap! history conj
+               (-> state
+                   :decoder
+                   get-state))
+        (write! (:content-matrix state)
+                (decode-and-step! (:decoder state)
+                                  data
+                                  decoder-threshold)
+                data))
+      (clear-activations (:decoder state))
+      (let [read1 (fn [t]
+                    (sdm-read (:content-matrix state)
+                              (decode-and-step!
+                               (:decoder state)
+                               t
+                               decoder-threshold)
+                              1))
+            out1 (read1 (first T))
+            out2 (read1 (:result out1))]
+        [:t0
+         (hd/similarity (torch->jvm (:result out1)) (first T))
+         (hd/similarity (torch->jvm (:result out1))
+                        (second T)) :t1
+         (hd/similarity (torch->jvm (:result out2)) (first T))
+         (hd/similarity (torch->jvm (:result out2))
+                        (second T))])))
+
+
+  [:t0 1.0 0.0 :t1 0.0 1.0]
+
+
+  (defn read-sequence!
+    [{:keys [content-matrix decoder]} address
+     decoder-threshold]
+    ;;
+    ;; stop? Perhaps when the confidence is very low? Or
+    ;; when you encounter a stop codon? Or after x
+    ;; steps? Would be cool to check the confidence
+    ;; then perhaps return random noice instead (that
+    ;; would sound biological to me)
+    ;;
+    (reductions (fn [address _]
+                  (:result (sdm-read content-matrix
+                                     (decode-and-step!
+                                      decoder
+                                      address
+                                      decoder-threshold)
+                                     1)))
+                address
+                (range 5)))
+
+  (defn cleanup
+    [T q]
+    (ffirst (sort-by second
+                     (fn [a b]
+                       (compare (hd/similarity b q)
+                                (hd/similarity a q)))
+                     (into [] T))))
+
+
+
+  (do
+    (do (System/gc)
+        (py.. torch/cuda empty_cache))
+    (alter-var-root
+     #'hd/default-opts
+     (constantly (let [dimensions (long 1e4)
+                       segment-count 20]
+                   {:bsdc-seg/N dimensions
+                    :bsdc-seg/segment-count segment-count
+                    :bsdc-seg/segment-length
+                    (/ dimensions segment-count)})))
+    (let [address-count (long 1e4)
+          word-length (:bsdc-seg/N hd/default-opts)
+          address-density 0.005
+          decoder-threshold 2
+          state
+          {:content-matrix (->content-matrix address-count
+                                             word-length)
+           :decoder (->k-fold-address-decoder
+                     {:address-count address-count
+                      :address-density address-density
+                      :k-delays 5
+                      :word-length word-length})}
+          ;; T (repeatedly 1e3 #(hd/->hv))
+          char->t (into {}
+                        (map (fn [g] [g (hd/->hv)]))
+                        ;; a,b,c,...z
+                        (map char (range 97 123)))
+          history (atom [])]
+      (doseq [data (take 5 (map val char->t))]
+        (swap! history conj
+               (-> state :decoder get-state))
+        (write! (:content-matrix state)
+                (decode-and-step! (:decoder state) data decoder-threshold)
+                data))
+      (clear-activations (:decoder state))
+      [char->t
+       (read-sequence! state
+                       (get char->t \a)
+                       decoder-threshold)]))
+
+  (def out *1)
+
+
+  (for [query-v (second out)]
+    (let [m (into [] (map val (first out)))
+          query-v (if-not (dtt/tensor? query-v)
+                    (torch->jvm query-v)
+                    query-v)
+          threshold 0]
+      (let [similarities
+            (into [] (pmap #(hd/similarity % query-v) m))]
+        (when (seq similarities)
+          (let [argmax (dtype-argops/argmax similarities)]
+            (when (<= threshold (similarities argmax))
+              ((clojure.set/map-invert (first out))
+               (m argmax))))))))
+  '(\a \a \a \c \c \d)
+
+
+
+  (do
+    (do (System/gc) (py.. torch/cuda empty_cache))
+    (alter-var-root #'hd/default-opts
+                    (constantly
+                     (let [dimensions (long 1e4)
+                           segment-count 20]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+    (let [address-count (long 1e3)
+          word-length (:bsdc-seg/N hd/default-opts)
+          address-density 0.03
+          decoder-threshold 2
+          state {:content-matrix (->content-matrix
+                                  address-count
+                                  word-length)
+                 :decoder (->k-fold-address-decoder
+                           {:address-count address-count
+                            :address-density address-density
+                            :k-delays 5
+                            :word-length word-length})}
+          ]
+
+      (def history (atom []))
+      (doseq [[_ data] (take 5 T)]
+        (swap! history conj (-> state :decoder get-state))
+        (auto-associate! (:content-matrix state) data (:decoder state) decoder-threshold))
+
+      ;; @history clear! In physiology, one might do this
+      ;; by querying with 'nothing' for a few times
+      (clear-activations (:decoder state))
+      (def thestate state)
+
+      (let [c (rand-nth (into [] (map char) (range 97 123)))
+            c-t (get T c)
+            read-and-step!
+            (fn [address]
+              ;; (def address address)
+              ;; (def state state)
+              ;; (def decoder-threshold decoder-threshold)
+              (let
+                  [addresses
+                   (decode (:decoder state) address decoder-threshold)
+                   out1 (sdm-read (:content-matrix state) addresses 1)]
+                ;; (torch->jvm (:result out1))
+                  out1))
+
+
+            ;; outcomes
+            ;; query 3 times
+            ;; (reductions (fn [address _] (read-and-step! address)) c-t (range 2))
+            ]
+        ;; (count outcomes)
+        ;; (map #(cleanup T %)  outcomes)
+
+        ;; (let [out1 (read-and-step! (get T \a))
+        ;;       out2 (read-and-step! (torch->jvm (:result out1)))
+        ;;       out3 (read-and-step! (torch->jvm (:result out2)))]
+        ;;   (map #(cleanup T %) [out1 out2 out3]))
+
+        (def T T)
+        (let [out1 (read-and-step! (get T \a))
+              out2 (read-and-step! (torch->jvm (:result out1)))]
+          [(cleanup T (torch->jvm (:result out2)))
+           out2]))))
+
+
+
+
+  @history
+
+  ;; should be 'b'
+  (cleanup T
+           (torch->jvm
+            (:result (sdm-read (:content-matrix thestate)
+                               (indices->address-locations
+                                (long 1e3)
+                                #{130 468 676 723 890 402
+                                  954 515 419 944 498 528
+                                  303 522 456 411 201 489 47
+                                  533 16 288 73 633 744})
+                               1))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+  (clear-activations (:decoder state))
+
+  (let [read-and-step!
+        (fn [address]
+          ;; (def address address)
+          ;; (def state state)
+          ;; (def decoder-threshold decoder-threshold)
+          (let
+              [addresses
+               (decode (:decoder state) address decoder-threshold)
+               out1
+               (sdm-read (:content-matrix state) addresses 1)]
+              (torch->jvm (:result out1))))]
+    (let [out1 (read-and-step! (get T \a))
+          out2 (read-and-step! out1)
+          out3 (read-and-step! out2)]
+      (map #(cleanup T %) [out1 out2 out3])))
+
+
+  (cleanup T (first (rand-nth (into [] T))))
+
+
+  (ffirst (sort-by second
+                   (fn [a b]
+                     (compare
+                      (hd/similarity b (get T \e))
+                      (hd/similarity a (get T \e))))
+                   (into [] T))))

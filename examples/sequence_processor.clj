@@ -156,10 +156,11 @@
   ;; for each position in this implementation)
   ;;
   (run! (fn [x] (when-not (known x 0.9) (remember x))) xs)
-  (hd/thin (apply hd/bundle
-             (map-indexed (fn [i x]
-                            (hd/bind x (sequence-marker i)))
-                          xs))))
+  (hd/thin
+   (apply hd/bundle
+          (map-indexed (fn [i x]
+                         (hd/bind x (sequence-marker i)))
+                       xs))))
 
 ;; seq is basically a set where the keys correspond to indices
 ;; retrieving is the same as with a record
@@ -491,15 +492,13 @@
              env)]
      (h-eval body new-env))))
 
-
-
-
 (comment
   ;; let makes an environment, the evaluator looks up what is bound
   (cleanup*
    (h-eval
     (clj->vsa ['let ['a 100 'b 200] 'a])
     (non-sense)))
+
 
   ;; mix primitives work of course
   (cleanup*
@@ -521,7 +520,7 @@
     (create)))
   ;; (200 5)
 
-  ;; instead of shadowing, the enivronment creates a superposition of values
+  ;; instead of shadowing, the environment creates a superposition of values
 
   ;; and the ambiguity primitives work as expected:
 
@@ -637,12 +636,10 @@
    (h-eval
     (clj->vsa [possibly [coin-hyper] :foo])
     (create)))
-
   ;; (:foo :heads :tails)
 
 
   ;; a mix of lambdas is also a thing:
-
   (cleanup*
    (h-eval
     (clj->vsa [[mix
@@ -671,10 +668,7 @@
   ;; (20 50 15 -5)
 
   (cleanup* (h-eval (clj->vsa [[mix + - *] 10 10])))
-  (20 100 0)
-
-
-  ;; (100 20 0)
+  ;; (20 100 0)
 
 
   (cleanup*
@@ -936,7 +930,7 @@
            (doall (map #(eval-compound-procedure %
                                                  arguments)
                     (filter compound-procedure?
-                            (lookup* auto-a-memory op 0.3))))]
+                      (lookup* auto-a-memory op 0.3))))]
      (if-not (seq (concat primitive-outcomes
                           compound-outcomes))
        ;; guess that's an error
@@ -958,13 +952,13 @@
 ;;
 
 (defn set-expr [exp]
-  (into [possibly] exp))
+  (into [#'mix] exp))
 
 (defn map-expr [exp]
   (into
-   [mix]
+   [#'mix]
    (for [[k v] exp]
-     [bind k v])))
+     [#'bind k v])))
 
 (defn vec-expr [exp]
   (into [->sequence] exp))
@@ -973,43 +967,38 @@
   [clj-exp]
   (cond
     (set? clj-exp) (set-expr (map analyse-expression
-                                  clj-exp))
+                               clj-exp))
     (map? clj-exp)
-    (map-expr (map (fn [[k v]] [(analyse-expression k)
-                                (analyse-expression v)])
-                   clj-exp))
+      (map-expr (map (fn [[k v]] [(analyse-expression k)
+                                  (analyse-expression v)])
+                  clj-exp))
     (and (list? clj-exp) (= 'let (first clj-exp)))
-    (list 'let
-          (into []
-                (map analyse-expression (nth clj-exp 1)))
-          (analyse-expression (nth clj-exp 2)))
-
+      (list 'let
+            (into []
+                  (map analyse-expression (nth clj-exp 1)))
+            (analyse-expression (nth clj-exp 2)))
     (and (list? clj-exp) (= 'lambda (first clj-exp)))
-    (list 'lambda
-          (into []
-                (map analyse-expression (nth clj-exp 1)))
-          (analyse-expression (nth clj-exp 2)))
-
-    (and (list? clj-exp) (= 'fn (first clj-exp)))
-    (eval clj-exp)
-
+      (list 'lambda
+            (into []
+                  (map analyse-expression (nth clj-exp 1)))
+            (analyse-expression (nth clj-exp 2)))
+    (and (list? clj-exp) (= 'fn (first clj-exp))) (eval
+                                                    clj-exp)
     (vector? clj-exp) (vec-expr (map analyse-expression
-                                     clj-exp))
-    (list? clj-exp)
-    (into [] (map analyse-expression clj-exp))
-
+                                  clj-exp))
+    (list? clj-exp) (into []
+                          (map analyse-expression clj-exp))
     ;; guess I'm kludgin it up, but hey clj meta
     ;; data and namespaces are simply amazing
-    :else (let [hypersymbols
-                (into {}
-                      (filter
-                       (fn [[sym v]]
-                         (when (var? v)
-                           (:hyper-fn (meta v))))
-                       (ns-map *ns*)))]
-            (or
-             (hypersymbols clj-exp)
-             clj-exp))))
+    :else (let [hypersymbols (into {}
+                                   ;; (map (juxt key
+                                   ;; key))
+                                   (filter (fn [[sym v]]
+                                             (when (var? v)
+                                               (:hyper-fn
+                                                 (meta v))))
+                                     (ns-map *ns*)))]
+            (or (hypersymbols clj-exp) clj-exp))))
 
 (defn h-read [clj-exp]
   (clj->vsa (analyse-expression clj-exp)))
@@ -1019,8 +1008,61 @@
   `(h-read '~code))
 
 (comment
-  (analyse-expression '#{a b c})
-  ;; [possibly a c b]
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     (let [b :hehehe]
+       (release (let [a 200] {:foo #{a b}}) :foo)))))
+  '(200 :hehehe)
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     (release
+      {:capital :mxc
+       :currency :peso
+       :name :mexico}
+      (release
+       {:capital :wdc
+        :currency :dollar
+        :name :use}
+       :dollar)))))
+  '(:peso)
+
+
+  (cleanup*
+   (h-eval
+    (h-read-code
+     ((fn [source-domain target-domain query]
+        (release target-domain
+                 (release source-domain query)))
+      {:capital :mxc :currency :peso :name :mexico}
+      {:capital :wdc :currency :dollar :name :use}
+      :dollar))))
+  ;; doesn't work atm
+  ;; because the info is to far watered down in the sequence encodig scheme we use
+  ;; (would probably work without thinning, but then this version here is slow)
+  ;;
+
+
+  ;; this works:
+  (cleanup*
+   (h-eval
+    (h-read-code
+     ((fn [x y z] z) :a :b :dollar))))
+  '(:dollar)
+
+
+
+
+
+
+
+  (cleanup*
+   (h-eval (clj->vsa (analyse-expression '#{10 20 30}))))
+  ;; (10 20 30)
+
 
   (cleanup*
    (h-eval
@@ -1356,6 +1398,21 @@
 
 
 (comment
+
+  (doseq [n (range 500)]
+    (->prototype n))
+
+  (time (let [hsx (pair (->prototype :a) (->prototype :b))]
+          (take 10 (map known (map #(h-nth hsx %) (range))))))
+
+
+
+
+
+
+
+
+
 
 
 

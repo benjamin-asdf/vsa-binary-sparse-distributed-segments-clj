@@ -2,6 +2,8 @@
 ;; just experiments
 ;;
 
+;; this one is not functional atm
+
 (ns sequence-processor-sdm
   (:require
    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
@@ -19,46 +21,34 @@
   (store [this address])
   (known? [this address]))
 
-(defonce
-  ->auto-a-memory
-  (fn []
-    (let [address-count (long 1e4)
-          word-length (:bsdc-seg/N hd/default-opts)
-          address-density 0.0009
-          ;; (long (/ 6 address-count))
-          decoder-threshold 2
-          read-threshold 5
-          state (atom {:content-matrix (sdm/->content-matrix
-                                        address-count
-                                        word-length)
-                       :decoder
-                       (sdm/->address-decoder
-                        {:address-count address-count
-                         :address-density address-density
-                         :word-length word-length})})]
-      (reify
-        AutoAssociativeMemory
-        (lookup [this address k]
-          (let [{:keys [decoder content-matrix]} @state]
-            (-> (sdm/lookup-iteratively
-                 content-matrix
-                 address
-                 decoder
-                 (merge hd/default-opts
-                        {:decoder-threshold
-                         decoder-threshold
-                         :read-threshold read-threshold
-                         :top-k 1}))
-                :result)))
-        (lookup [this address] (lookup this address 1))
+(defn ->auto-a-memory
+  []
+  (let [sdm (sdm/->sdm {:address-count (long 1e5)
+                        :address-density 0.00003
+                        :k-delays 6
+                        :stop? (fn [acc next-outcome]
+                                 (when (< (:confidence
+                                            next-outcome)
+                                          0.05)
+                                   :low-confidence))
+                        :word-length (long 1e4)})]
+    (reify
+      AutoAssociativeMemory
+        (lookup [this address]
+          (let [res (sdm/lookup sdm address 1 1)]
+            (def res res)
+            (when (< 0.25 (:confidence res))
+              (sdm/ensure-jvm (:result res)))))
         (store [this address]
-          (let [{:keys [decoder content-matrix]} @state]
-            (sdm/auto-associate! content-matrix
-                                 address
-                                 decoder
-                                 decoder-threshold)))))))
+          (sdm/write sdm address address 1)))))
 
-(defonce auto-a-memory (->auto-a-memory))
+(def auto-a-memory (->auto-a-memory))
+
+(comment
+  (def a (hd/->seed))
+  (store auto-a-memory a)
+  (lookup auto-a-memory a))
+
 
 (defn known
   "Cleanup x with the autoassociative memory."
@@ -115,7 +105,7 @@
   (defn cleanup-mem [] @lut))
 
 (defn cleanup*
-  ([address] (cleanup* address 0.09))
+  ([address] (cleanup* address 0.2))
   ([address threshold]
    (map :k (cleanup-lookup-verbose address threshold))))
 
@@ -158,10 +148,10 @@
   ;; for each position in this implementation)
   ;;
   (run! (fn [x] (remember-soft x)) xs)
-  (hd/thin (apply hd/bundle
-             (map-indexed (fn [i x]
-                            (hd/bind x (sequence-marker i)))
-                          xs))))
+  (apply hd/bundle
+         (map-indexed (fn [i x]
+                        (hd/bind x (sequence-marker i)))
+                      xs)))
 
 ;; seq is basically a map where the keys correspond to indices
 ;; retrieving is the same as with a record
@@ -273,9 +263,17 @@
     (let [coin
           (mostly
            (->prototype :heads)
-           (->prototype :tails) 0.05)]
+           (->prototype :tails)
+           0.02)]
       [(cleanup* coin)]))
-  [(:heads)]
+
+  (let
+      [coin (mostly (->prototype :heads)
+                    (->prototype :tails)
+                    0.05)]
+    [(cleanup-lookup-verbose coin)
+     (cleanup* coin 0.2)])
+
 
 
   ;; now if you use a higher threshold for cleanup:
@@ -382,103 +380,53 @@
      (->prototype :a)
      (->prototype :b))))
 
-  (remember (->prototype :a))
-  (remember (->prototype :b))
-  (known (->prototype :a))
-  (known (->prototype :b))
+  (hd/similarity
+   (->prototype :a)
+   (h-nth (pair
+           (->prototype :a)
+           (->prototype :b)) 0))
 
   (hd/similarity
-   (->prototype :b)
-   (hd/unbind
-    (hd/thin
-     (hd/bundle
-      (hd/bind (->prototype :a) (sequence-marker 0))
-      (hd/bind (->prototype :b) (sequence-marker 1))))
-    (sequence-marker 1)))
+   (->prototype :a)
+   (known
+    (h-nth (pair (->prototype :a)
+                 (->prototype :b))
+           0)))
 
-  (hd/similarity
-   (->prototype :b)
-   (known (hd/unbind
-           (hd/thin
-            (hd/bundle
-             (hd/bind (->prototype :a) (sequence-marker 0))
-             (hd/bind (->prototype :b) (sequence-marker 1))))
-           (sequence-marker 1))))
+  (hd/similarity (->prototype :b)
+                 (known (h-nth (pair (->prototype :a)
+                                     (->prototype :b))
+                               1)))
 
-  (hd/similarity
-   (hd/thin (hd/bundle
-             (hd/bind (->prototype :a)
-                      (sequence-marker 0))
-             (hd/bind (->prototype :b)
-                      (sequence-marker 1))))
-   (pair (->prototype :a) (->prototype :b)))
+  (known (h-nth (pair (->prototype :a) (->prototype :b)) 0))
+
+  (known
+   (h-nth
+    (pair (->prototype :a) (->prototype :b))
+    0))
+
+  (doseq [n (range 1000)]
+    (->prototype n))
+
+  (time
+   (let [hsx (pair (->prototype :a) (->prototype :b))]
+     (map
+      cleanup*
+      (keep
+       identity
+       (take 10
+             (map known
+                  (map #(h-nth hsx %) (range))))))))
 
 
   (hd/similarity
    (->prototype :a)
-   (h-nth (pair (->prototype :a) (->prototype :b)) 0))
-
-  (hd/similarity
-   (->prototype :a)
-   (known (h-nth (pair (->prototype :a)
-                       (->prototype :b))
-                 0)))
-
-  (hd/similarity
-   (->prototype :b)
-   (known (h-nth (pair (->prototype :a)
-                       (->prototype :b))
-                 1)))
-
-  (time (let [hsx (pair (->prototype :a)
-                        (->prototype :b))]
-          (take 10
-                (map known (map #(h-nth hsx %) (range))))))
-
+   (h-nth (pair (->prototype :a) (->prototype :b)) 9))
 
   (cleanup*
    (let
        [hsx (pair (->prototype :a) (->prototype :b))]
        (known (h-nth hsx 3))))
-
-  (def a (->prototype :a))
-  (def b (->prototype :b))
-
-  (hd/similarity
-   (->prototype :a)
-   (let
-       [hsx
-        (->sequence (->prototype :a) (->prototype :b))]
-       (known (h-nth hsx 3))))
-
-  (hd/similarity
-   (->prototype :b)
-   (let
-       [hsx (pair (->prototype :a) (->prototype :b))]
-       (known (h-nth hsx 3))))
-
-
-  (cleanup* (known (h-nth (pair (->prototype :a) (->prototype :b)) 2)))
-
-  (hd/similarity
-   (->prototype :a)
-   (h-nth (pair (->prototype :a) (->prototype :b)) 2))
-  (def thehsx (hd/unbind
-               (hd/thin
-                (hd/bundle
-                 (hd/bind (->prototype :a) (sequence-marker 0))
-                 (hd/bind (->prototype :b) (sequence-marker 1))))
-               (sequence-marker 2)))
-
-
-  (hd/similarity
-   (->prototype :a)
-   (hd/unbind
-    (hd/thin
-     (hd/bundle
-      (hd/bind (->prototype :a) (sequence-marker 0))
-      (hd/bind (->prototype :b) (sequence-marker 1))))
-    (sequence-marker 2)))
 
   (walk-cleanup
    (unroll (h-rest
@@ -497,35 +445,14 @@
      (pair (->prototype :a) (->prototype :b))
      1)))
 
-  (hd/similarity (->prototype :a) (known (->prototype :b)))
-  (cleanup* (known (h-nth (pair (->prototype :a) (->prototype :b)) 2)))
   (cleanup-lookup-value
    (known (h-nth
            (->sequence (->prototype :a) (->prototype :b))
            0)))
 
   (cleanup-lookup-value (known (->prototype :c)))
-
-  (hd/similarity
-   (->prototype :a)
-   (h-nth
-    (->sequence
-     (->prototype :a)
-     (->prototype :b))
-    1))
-
-  (hd/similarity
-   (->prototype :b)
-   (h-nth
-    (->sequence
-     (->prototype :a)
-     (->prototype :b))
-    1))
-
-  (hd/similarity (->prototype :a) (known (->prototype :a)))
-  (hd/similarity (->prototype :a) (known (->prototype :b)))
-  (hd/similarity (->prototype :b) (known (->prototype :b)))
-  )
+  (known (->prototype :c))
+  (remember (->prototype :c)))
 
 
 ;;
@@ -641,6 +568,7 @@
    (h-eval
     (clj->vsa ['let ['a 100 'b 200] 'a])
     (non-sense)))
+  '(100)
 
   (known (h-nth (clj->vsa ['let ['a 100 'b 200] 'a]) 1))
 
@@ -658,18 +586,11 @@
    (known (clj->vsa [10 20 100 200]))
    (h-nth (clj->vsa [:a [10 20 100 200] :c]) 1))
 
-
-
-
-
-
   (let? (clj->vsa ['let ['a 100 'b 200] 'a]))
 
   (hd/similarity
    (->prototype 'let)
    (h-nth (clj->vsa ['let ['a 100 'b 200] 'a]) 0))
-
-
 
   ;; mix primitives work of course
   (cleanup*

@@ -955,3 +955,501 @@
                       (hd/similarity b (get T \e))
                       (hd/similarity a (get T \e))))
                    (into [] T))))
+
+
+(defprotocol AddressDecoder
+  (decode [this address decoder-threshold]))
+
+(defn ->address-decoder
+  "
+  Returns an sdm AddressDecoder"
+  [{:keys [address-count word-length address-density]}]
+  (let [address-matrix (->address-matrix address-count
+                                         word-length
+                                         address-density)]
+    (reify
+      AddressDecoder
+      (decode [_ address decoder-threshold]
+        (decode-addresses address-matrix
+                          address
+                          decoder-threshold)))))
+
+(defn auto-associate!
+  [content-matrix address decoder decoder-threshold]
+  (write! content-matrix
+          (decode decoder address decoder-threshold)
+          address))
+
+(defn lookup-iteratively
+  [content-matrix address decoder
+   {:as opts
+    :keys [decoder-threshold top-k read-threshold]}]
+  ;; lookup iteratively, if you are within critical
+  ;; distance this will converge to the output word
+  ;; within a few steps
+  ;; Kanerva 1988 [2]
+  ;;
+  (reduce (fn [{:keys [last-outcome address]} step]
+            (let [address (pyutils/ensure-torch address)
+                  outcome (torch->jvm
+                           (sdm-read
+                            content-matrix
+                            (decode
+                             decoder
+                             address
+                             decoder-threshold)
+                            top-k
+                            read-threshold))]
+              (cond (and last-outcome
+                         (< 0.98
+                            (hd/similarity last-outcome
+                                           outcome
+                                           opts)))
+                      (ensure-reduced {:last-outcome outcome
+                                       :result outcome
+                                       :step step})
+                    :else {:address outcome
+                           :last-outcome outcome
+                           :step step})))
+    {:address address :step 0}
+    (range 6)))
+
+
+(defn ->delayed-address-decoder-1
+  [{:keys [address-count word-length address-density
+           k-delays]}]
+  (let [address-matrix (->address-matrix-coo
+                        address-count
+                        word-length
+                        address-density)
+        address-delays (->address-delays
+                        {:address-count address-count
+                         :k-delays k-delays})
+        make-state (fn []
+                     {:t 0
+                      ;; the future addresses
+                      :delay-table (delay-activation-table
+                                    {:address-count
+                                     address-count
+                                     :k-delays k-delays})})
+        state (atom (make-state))]
+    (reify
+      clojure.lang.IDeref
+      (deref [this] @state)
+      Resets
+      (reset [this]
+        ;; t -> 0
+        ;; no delays remembered anymore
+        (reset! state (make-state)))
+      AddressDecoder
+      (decode-address [this address decoder-threshold]
+        (let [address-locations (decode-addresses-coo
+                                 address-matrix
+                                 address
+                                 decoder-threshold)
+              {:keys [delay-table t]} @state
+              delay-table (write-delay-table!
+                           delay-table
+                           address-locations
+                           address-delays)
+              now-location-set (read-delay-table
+                                delay-table)
+              next-table (update-delay-table delay-table)
+              _ (reset! state {:delay-table next-table
+                               :t (inc t)})]
+          now-location-set)))))
+
+(comment
+  (def decoder
+    (->delayed-address-decoder
+     {:address-count 5
+      :word-length 25
+      :address-density 0.5
+      :k-delays 3}))
+
+
+  (def a (hd/->hv))
+
+  (decode-address decoder a 2)
+
+  ;; [[True False False]
+  ;;  [False False False]
+  ;;  [False True False]
+  ;;  [False True False]
+  ;;  [False False False]]
+
+  (-> @decoder :delay-table (read-delay-table))
+  ;; tensor([ True, False, False, False, False])
+  )
+
+
+(comment
+
+  (binding [*torch-device* :cuda]
+    (do (alter-var-root
+         #'hd/default-opts
+         (constantly (let [dimensions 25
+                           segment-count 5]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+        (let [m (sparse-sdm {:address-count (long 1e6)
+                             :address-density 0.002
+                             :word-length 25})
+              d (hd/->hv)]
+          ;; (torch/sum (decode-address m (hd/->hv) 2))
+          (write m d d 2)
+          ;; (lookup m d 1 2)
+          (hd/similarity d
+                         (torch->jvm (:result
+                                      (lookup m d 1 2)))))))
+
+  1.0
+
+
+  ;; M = 1e6, N = 1e4, addr-density = 0.0005
+  ;; Kinda cool that I can do it with 1 million locations
+  ;; in some ways mirroring the efficiency of the brain sparse endoding
+  ;; (only that here its storage and in brain its energy)
+
+
+
+  ;; The memory requirements for the coo matrix is roughly
+
+  (defn c-requirement
+    [address-locations-per-input T bit-per-input]
+    (let [nse (* address-locations-per-input T bit-per-input)
+          ndim 2
+          itemsize (py.. torch/uint8 -itemsize)]
+      (* nse (+ (* ndim 8) itemsize))))
+
+  (defn to-mib [bytes]
+    (/ bytes (Math/pow 2 20)))
+  (to-mib (c-requirement 40 (long 1e3) 20))
+
+  ;; M = 1e6
+
+  (binding [*torch-device* :cuda]
+    (do (alter-var-root
+         #'hd/default-opts
+         (constantly (let [dimensions (long 1e4)
+                           segment-count 20]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+        #_(def T
+            (into []
+                  (map #(pyutils/ensure-torch % :cuda)
+                       (repeatedly 1e3 #(hd/->hv)))))
+        (def T
+          (into []
+                (map pyutils/ensure-torch
+                     (repeatedly 2 #(hd/->hv)))))
+        (time (let [m (sparse-sdm {:address-count (long 1e6)
+                                   :address-density 0.00095
+                                   :word-length (long 1e4)})]
+                ;; (doseq [[idx t] (map-indexed vector
+                ;;                              (take
+                ;;                              1000 T))]
+                ;;   (write m t t 2))
+                ;; (let [d (first T)]
+                ;;   (hd/similarity
+                ;;     (torch->jvm d)
+                ;;     (torch->jvm (:result (lookup m d 1
+                ;;     2)))))
+                (torch/sum (decode-address m (first T) 2))))))
+
+
+  (binding [*torch-device* :cuda]
+    (do (alter-var-root
+         #'hd/default-opts
+         (constantly (let [dimensions (long 1e4)
+                           segment-count 20]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+        #_(def T
+            (into []
+                  (map #(pyutils/ensure-torch % :cuda)
+                       (repeatedly 1e3 #(hd/->hv)))))
+        (def T
+          (into []
+                (map pyutils/ensure-torch
+                     (repeatedly 1e3 #(hd/->hv)))))
+        (time (let [m (sparse-sdm {:address-count (long 1e5)
+                                   :address-density 0.0014
+                                   :word-length (long 1e4)})]
+                (doseq [t T]
+                  (write m t t 2))
+                (let [d (rand-nth T)]
+                  (hd/similarity (torch->jvm d)
+                                 (torch->jvm
+                                  (:result
+                                   (lookup m d 1 2)))))))))
+  1.0
+
+  ;; this config is fast I guess, 5.5s for 1000 writes
+  ;; but is has very low address count for random addr., so presumably not much capacity
+
+  (torch/sum
+   (decode-address (->decoder-coo
+                    {:address-count (long 1e5)
+                     :address-density 0.0014
+                     :word-length (long 1e4)})
+                   (hd/->hv)
+                   2))
+
+  (time
+   (torch/sum
+    (decode-address (->decoder-coo
+                     {:address-count (long 1e5)
+                      :address-density 0.00003
+                      :word-length (long 1e4)})
+                    (hd/->hv)
+                    1)))
+
+
+  ;; depends heavily on :address-density,
+  ;; I don't have enough gpu memory to go to a good density, which would be given by [[ideal-p]]
+  ;; then the count of address would be  ~ 360, for T = 1e4, M = 1e6
+  ;;
+
+
+  ;; "Elapsed time: 29745.362644 msecs"
+
+
+  (float (/ (* (/ 37 1000) 10000) 60))
+  6.1666665
+  ;; if you want to deal with 10k hypervectors, you you would need to bring 5-10min with this implementation
+  ;;
+  ;; if you want to deal with 1k hypervectors, that's too long for enjoying the repl
+  ;;
+  ;; if you want to deal with 100 hypervectors, it's fast.
+  ;;
+
+
+  ;; M = 1e5 works on cpu
+  ;; can't really recommend it.
+  ;; interesting experience for me to feel the power of parallel processing.
+  ;;
+
+  (binding [*torch-device* :cpu]
+    (do (alter-var-root
+         #'hd/default-opts
+         (constantly (let [dimensions (long 1e4)
+                           segment-count 20]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count
+                        segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+        (def T (into [] (map pyutils/ensure-torch (repeatedly 1e3 #(hd/->hv)))))
+        (time
+         (let [m (sparse-sdm {:address-count (long 1e5)
+                              :address-density 0.002
+                              :word-length (long 1e4)})]
+           (doseq [t (take 100 T)]
+             ;; (decode-address m t 2)
+             (write m t t 2))
+           (let [d (first T)]
+             (write m d d 2)
+             (lookup m d 1 2)
+             (hd/similarity
+              (torch->jvm d)
+              (torch->jvm (:result (lookup m d 1 2)))))))))
+  ;; 4s
+  )
+
+
+(comment
+  (do
+    (do (System/gc) (py.. torch/cuda empty_cache))
+    (alter-var-root #'hd/default-opts
+                    (constantly
+                     (let [dimensions (long 1e4)
+                           segment-count 20]
+                       {:bsdc-seg/N dimensions
+                        :bsdc-seg/segment-count segment-count
+                        :bsdc-seg/segment-length
+                        (/ dimensions segment-count)})))
+    (let [address-count (long 1e4)
+          word-length (:bsdc-seg/N hd/default-opts)
+          address-density 0.005
+          decoder-threshold 2
+          state {:content-matrix (->content-matrix
+                                  address-count
+                                  word-length)
+                 :decoder (->address-decoder
+                           {:address-count address-count
+                            :address-density address-density
+                            :word-length word-length})}
+          t (hd/->hv)
+          t-prime (hd/weaken t 0.5)
+          tb (hd/thin (hd/bundle t (hd/->hv)))
+          T (repeatedly 1e3 #(hd/->hv))
+          ;; if I don't thin, I get the t out
+          tc (hd/bundle t (hd/->hv) (hd/->hv) (hd/->hv))
+          addresses
+          (decode (:decoder state) t decoder-threshold)]
+      (doseq [data T]
+        (auto-associate! (:content-matrix state)
+                         data
+                         (:decoder state)
+                         decoder-threshold))
+      (auto-associate! (:content-matrix state)
+                       t
+                       (:decoder state)
+                       decoder-threshold)
+      ;; [(torch/sum addresses)
+      ;;  (torch/sum
+      ;;   (decode (:decoder state) t-prime
+      ;;   decoder-threshold))
+      ;;  (torch/sum
+      ;;   (decode (:decoder state) tb
+      ;;   decoder-threshold))]
+      [(let [r (sdm-read (:content-matrix state) addresses 1)]
+         [:sim-t-res
+          (hd/similarity (torch->jvm (:result r)) t)
+          :confidence (:confidence r)])
+       ;; prime
+       (let [r (sdm-read
+                (:content-matrix state)
+                (decode (:decoder state)
+                        t-prime
+                        decoder-threshold)
+                1)]
+         [:sim-t-prime-res
+          (hd/similarity (torch->jvm (:result r)) t)
+          :confidence (:confidence r)])
+       (let [r (sdm-read (:content-matrix state)
+                         (decode (:decoder state)
+                                 tb
+                                 decoder-threshold)
+                         1)]
+         [:sim-tb (hd/similarity (torch->jvm (:result r)) t)
+          :confidence (:confidence r)])
+       (let [r (sdm-read (:content-matrix state)
+                         (decode (:decoder state)
+                                 tc
+                                 decoder-threshold)
+                         1)]
+         [:sim-tc (hd/similarity (torch->jvm (:result r)) t)
+          :confidence (:confidence r)])]))
+
+  [[:sim-t-res 1.0 :confidence 1.0]
+   [:sim-t-prime-res 1.0 :confidence 0.9999999403953552]
+   ;; intermediate confidence when made from equal parts
+   [:sim-tb 1.0 :confidence 0.3636363446712494]
+   ;; low confidence, but correct
+   [:sim-tc 1.0 :confidence 0.06641285866498947]])
+
+(comment
+  (py/set-item! (torch/zeros [5 5]) [0] 1)
+  ;; >
+  (py/set-item! (torch/zeros [5 5]) [0 1] 1)
+  ;; >
+  ;;  v
+  (py/set-item! (torch/zeros [5 5]) [0 1 2] 1)
+  ;; error dim >
+  ;;  v > !
+  (py/set-item! (torch/zeros [5 5]) [[0 1]] 1)
+  ;; > >
+  (py/set-item! (torch/zeros [5 5]) [[0 1] [0 1]] 1)
+  ;; >
+  ;;  v
+  ;; >
+  ;;  v
+  ;; goal:
+  ;; ----
+  ;; >
+  ;;  v ( one of randint 6 )
+  ;; ... 1e6
+  ;;
+  (let [t (torch/zeros [3 5])]
+    (let [idxs [(torch/arange (py.. t (size 0)))
+                (torch/randint :low 0
+                               :high (py.. t (size 1))
+                               :size [(py.. t (size 0))])]]
+      [idxs (py/set-item! t idxs 1)]))
+
+  )
+
+(comment
+  (alter-var-root
+   #'hd/default-opts
+   #(merge %
+           (let [dimensions 25
+                 segment-count 5]
+             {:bsdc-seg/N dimensions
+              :bsdc-seg/segment-count segment-count
+              :bsdc-seg/segment-length
+              (/ dimensions segment-count)})))
+
+
+
+
+  (alter-var-root
+   #'hd/default-opts
+   #(merge %
+           (let [dimensions (long 1e4)
+                 segment-count 20]
+             {:bsdc-seg/N dimensions
+              :bsdc-seg/segment-count segment-count
+              :bsdc-seg/segment-length
+              (/ dimensions segment-count)})))
+
+
+
+
+  (alter-var-root
+   #'hd/default-opts
+   #(merge %
+           (let [dimensions (long 1e4)
+                 segment-count 100]
+             {:bsdc-seg/N dimensions
+              :bsdc-seg/segment-count segment-count
+              :bsdc-seg/segment-length
+              (/ dimensions segment-count)})))
+
+
+  hd/default-opts
+  {:bsdc-seg/N 10000
+   :bsdc-seg/segment-count 20
+   :bsdc-seg/segment-length 500
+   :tensor-opts {:container-type :native-heap}})
+
+(comment
+
+
+  (torch/sum
+   (decode-address (->decoder-coo
+                    {:address-count (long 1e5)
+                     :address-density 0.002
+                     :word-length (long 1e4)})
+                   (hd/->hv)
+                   2))
+
+  ;; (/ 180 6)
+
+  (torch/sum
+   (decode-address (->decoder-coo
+                    {:address-count (long 1e6)
+                     :address-density 0.00001
+                     :word-length (long 1e4)})
+                   (hd/->hv)
+                   1))
+
+
+  (torch/sum
+   (decode-address (->decoder-coo
+                    {:address-count (long 1e6)
+                     :address-density 0.00001
+                     :word-length (long 1e4)})
+                   (hd/->hv)
+                   1))
+
+
+  )

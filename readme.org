@@ -139,14 +139,11 @@ Thanks to [[https://github.com/gigasquid/vsa-clj][Carin Meier's intro to VSA]].
 
 Thanks to [[https://github.com/cnuernber/dtype-next][Chris Nuernberger's dtype next]] for high performance and linear algebra stuff at the clojure repl.
 
-* Notice
-
-
 * Future
 
 - Dynamic sparsity mechanisms could perhaps represent different /levels of detail/, or parallel search processes[fn:2].
 
-- Implement a Sparse Distributed Memory, or figure out how to use an existing one
+
 
 * Literatrue
 

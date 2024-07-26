@@ -1,107 +1,159 @@
 (ns shakespear
   (:require
+   [clojure.set]
    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
    [tech.v3.datatype :as dtype]
    [tech.v3.parallel.for :as pfor]
    [tech.v3.datatype.argops :as dtype-argops]
+   [tech.v3.tensor :as dtt]
+   [bennischwerdtner.sdm.sdm :as sdm]
    [tech.v3.datatype.functional :as f]))
 
 (require '[sequence-processor :as hl])
 
 (defonce tiny-sp-text (slurp "https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt"))
 
-(def db (atom (hd/->seed)))
+(alter-var-root
+   #'hd/default-opts
+   #(merge %
+           (let [dimensions (long 1e4)
+                 segment-count 20]
+             {:bsdc-seg/N dimensions
+              :bsdc-seg/segment-count segment-count
+              :bsdc-seg/segment-length
+              (/ dimensions segment-count)})))
 
-;; https://paperswithcode.com/paper/cognitive-modeling-and-learning-with-sparse#code
+(def k-fold-sdm
+  (sdm/->k-fold-memory
+    {:address-count (long 1e5)
+     :address-density 0.00003
+     :k-delays 6
+     :stop? (fn [acc next-outcome]
+              (when (< (:confidence next-outcome) 0.05)
+                :low-confidence))
+     :word-length (long 1e4)}))
 
-;; binding a window with sequence markers,
-;; creating a single high dimensional representation
+(do
+  (def vocab (into #{} tiny-sp-text))
+  (defonce encode
+    (into {}
+          (map (juxt identity (fn [_] (hd/->seed))))
+          vocab))
+  (def encode-1 (clojure.set/map-invert encode))
+  (def decode
+    (comp
+      (fn [tens]
+        (let [m (into [] (vals encode))
+              similarities
+                (into [] (pmap #(hd/similarity % tens) m))]
+          similarities
+          (when (seq similarities)
+            (let [argmax (dtype-argops/argmax similarities)]
+              (when (<= 0.9 (similarities argmax))
+                (encode-1 (m argmax)))))))
+      sdm/ensure-jvm)))
 
-;; (partition 3 1 [:a :b :c :d])
+(comment
+  (decode (encode \I))
+  \I)
 
-(def items [:a :b :c :d])
+(comment
+  (apply str
+         (->> (do (sdm/reset k-fold-sdm)
+                  (sdm/lookup-xs k-fold-sdm (encode \F) 1))
+              :result-xs
+              (map :result)
+              (map decode)))
+  "First Ce")
 
-;; I say symbol is bound to { -1 prev 1 following }
-;; then we bundle into a single hd
-
-(reset!
- db
- (let [trigrams (partition 3
-                           1
-                           (map hl/clj->vsa
-                                (concat [:sos]
-                                        items
-                                        [:eos])))]
-   (reduce (fn [acc [a b c]]
-             (hd/thin (hd/bundle acc
-                                 (hd/bind
-                                  b
-                                  (hl/clj->vsa c)
-                                  ;; (hd/thin
-                                  ;;  (hd/bundle
-                                  ;;   (hd/bind
-                                  ;;   (hl/sequence-marker
-                                  ;;   -1) a)
-                                  ;;   (hd/bind
-                                  ;;   (hl/sequence-marker
-                                  ;;   1) c)))
-                                  ))))
-           (hd/->seed)
-           trigrams)))
-
-
-(hl/cleanup*
- (hd/unbind
-  (hd/unbind @db (hl/clj->vsa :a))
-  (hl/sequence-marker 1)))
-
-(hl/cleanup*
- (hd/unbind @db (hl/clj->vsa :a)))
-
-
-
-
-
-
-(defn bundle-seq
-  [db [a b c]]
-  (apply
-   hd/bundle
-   (concat
-    [db]
-    (map (fn [position e]
-           (hl/bind (hl/sequence-marker
-                     position)
-                    (hl/clj->vsa e)))
-         [-1 0 1]
-         [a b c]))))
-
-(hl/cleanup*
-  (hd/unbind
-    (hd/thin
-      (reduce bundle-seq
-        (hd/->seed)
-        (partition 3 1 (concat [:sos] items [:eos]))))
-    (hl/sequence-marker 0)))
-
-(hd/similarity
- (hl/sequence-marker -1)
- (hd/unbind
-  (hd/thin
-   (reduce bundle-seq
-           (hd/->seed)
-           (partition 3 1 (concat [:sos] items [:eos]))))
-  (hl/clj->vsa :sos)))
+(defn shakespear-v0
+  [start-character]
+  (let [{:keys [result-xs]}
+        (do (sdm/reset k-fold-sdm)
+            (sdm/lookup-xs k-fold-sdm (encode start-character) 1))]
+    (for [x result-xs]
+      (decode (:result x)))))
 
 
-(hl/cleanup*
- (hd/unbind
-  (hd/thin
-   (reduce bundle-seq
-           (hd/->seed)
-           (partition 3 1 (concat [:sos] items [:eos]))))
-  (hd/bundle
-   (hl/clj->vsa :sos)
-   (hl/sequence-marker 0))))
+(comment
+  (apply str (shakespear-v0 \F))
+  "First Ce")
 
-;; 2004.11204v1.pdf
+
+(comment
+
+
+  (time
+   (doseq
+       [txs
+        (take 200 (partition-all 7 tiny-sp-text))]
+       (do
+         (sdm/reset k-fold-sdm)
+         (sdm/write-xs! k-fold-sdm (map encode txs) 1))))
+
+  ;;
+  ;; would be 6 hours to train on the the whole text
+  ;;
+
+  (apply str (shakespear-v0 \F))
+  "Fire  oo"
+
+  (apply str (shakespear-v0 \U))
+  "U th  oe"
+
+  (apply str (shakespear-v0 (rand-nth (into [] (keys encode)))))
+  "On:\n\n\n\n\n"
+  "You th  "
+  "'t th  o"
+  "$ th  oe"
+  "\n\n\n\n\n\n\n\n"
+  "Ds th  o"
+  "Se t "
+
+  ;; newline is associated with itself lol.
+
+
+  )
+
+(comment
+
+  (time
+   (doseq
+       [txs
+        (take 500 (drop 700 (partition-all 7 (remove #{\space \newline} tiny-sp-text))))]
+       (do
+         (sdm/reset k-fold-sdm)
+         (sdm/write-xs! k-fold-sdm (map encode txs) 1))))
+
+  ;;
+  ;; would be 6 hours to train on the the whole text
+  ;;
+  (for [n (range 10)]
+    (apply str (shakespear-v0 (rand-nth (into [] (keys encode))))))
+
+  ("Hathenet"
+   "MENENIUS"
+   "Nndither"
+   "Lenhere"
+   "Youreren"
+   "Theene"
+   "peenee"
+   "K"
+   "Q"
+   "reneere")
+
+  ;; e starts to dominate the landscape now
+
+  (for [n (range 10)]
+    (apply str (shakespear-v0 (rand-nth (into [] (keys encode))))))
+
+  ("Leresee"
+   "lloure"
+   "zustheth"
+   "whereser"
+   "MENENIUS"
+   "Goureath"
+   ",thethe"
+   "\neresee"
+   "qustheth"
+   "Yeresee"))

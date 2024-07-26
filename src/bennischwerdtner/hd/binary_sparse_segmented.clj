@@ -1,13 +1,10 @@
 (ns bennischwerdtner.hd.binary-sparse-segmented
   (:require
-   [clojure.test :as t]
    [tech.v3.datatype.functional :as f]
    [tech.v3.datatype :as dtype]
    [tech.v3.tensor :as dtt]
-   [tech.v3.datatype.bitmap :as bitmap]
    [fastmath.random :as fm.rand]
    [fastmath.core :as fm]
-   [tech.v3.datatype.unary-pred :as unary-pred]
    [tech.v3.datatype.argops :as dtype-argops]))
 
 ;;
@@ -62,6 +59,20 @@
      :bsdc-seg/segment-count segment-count
      :bsdc-seg/segment-length (/ dimensions
                                  segment-count)}))
+
+
+(comment
+  ;; I started enjoying the daringness of making this
+  ;; 20
+  (alter-var-root #'default-opts
+                  (constantly
+                    (let [dimensions (long 1e4)
+                          segment-count 20]
+                      {:bsdc-seg/N dimensions
+                       :bsdc-seg/segment-count segment-count
+                       :bsdc-seg/segment-length
+                         (/ dimensions segment-count)}))))
+
 
 (defn ->empty
   "Returns a 'zero vector' of hypervector lenght."
@@ -204,12 +215,22 @@
   "
   ([a b] (similarity a b default-opts))
   ([a b {:bsdc-seg/keys [segment-count]}]
-   (/
-    (f/sum
-     (f/bit-and
-      (f/not-eq 0 a)
-      (f/not-eq 0 b)))
-    segment-count)))
+   (/ (f/sum (f/bit-and (f/< 0 a) (f/< 0 b)))
+      segment-count)))
+
+
+
+(let [a [0 2 0] b [0 1 0]]
+  (f/sum (f/* a (f/< 0 b))))
+
+(let [a [0 2 0 1] b [0 1 0 1]]
+  (/ (f/dot-product a b) 2.0)
+  ;; (f/sum (f/* a (f/< 0 b)))
+  )
+
+
+
+
 
 
 ;;
@@ -290,6 +311,9 @@
   "
   (comp dtt/->tensor f/+))
 
+(def superposition bundle)
+
+
 (defn thin-pth-modulo
   "Returns a new thinned vector derived from `a` where 1 non-zero bit per segment in `a` is left over.
 
@@ -338,28 +362,28 @@
     {:as opts
      :bsdc-seg/keys [segment-count segment-length N]}]
    (let [indices
-           (-> (dtt/reshape a
-                            [segment-count segment-length])
-               (dtt/reduce-axis
-                 (fn [segment]
-                   (let [max-value (f/reduce-max segment)]
-                     (when-not (zero? max-value)
-                       (let [segment-max-indices
-                               (dtype-argops/argfilter
-                                 (partial = max-value)
-                                 segment)
-                             ;; 'p'
-                             chosen-index
-                               (segment-max-indices
-                                 (fm/mod
-                                   (long
-                                     (f/sum
-                                       segment-max-indices))
-                                   (count
-                                     segment-max-indices)))]
-                         [chosen-index]))))
-                 -1
-                 :object))]
+         (-> (dtt/reshape a
+                          [segment-count segment-length])
+             (dtt/reduce-axis
+              (fn [segment]
+                (let [max-value (f/reduce-max segment)]
+                  (when-not (zero? max-value)
+                    (let [segment-max-indices
+                          (dtype-argops/argfilter
+                           (partial = max-value)
+                           segment)
+                          ;; 'p'
+                          chosen-index
+                          (segment-max-indices
+                           (fm/mod
+                            (long
+                             (f/sum
+                              segment-max-indices))
+                            (count
+                             segment-max-indices)))]
+                      [chosen-index]))))
+              -1
+              :object))]
      indices
      (indices->hv* indices opts))))
 
@@ -505,18 +529,18 @@
   ([a b alpha
     {:bsdc-seg/keys [N segment-count segment-length]}]
    (let [smallest-index-of-max-per-segment
-         (-> a
-             (dtt/reshape [segment-count segment-length])
-             (dtt/reduce-axis (fn [segment]
-                                ;; the first max value
-                                ;; index of the
-                                ;; segment (as)
-                                (dtype-argops/index-of
-                                 segment
-                                 (f/reduce-max
-                                  segment)))))
+           (-> a
+               (dtt/reshape [segment-count segment-length])
+               (dtt/reduce-axis (fn [segment]
+                                  ;; the first max value
+                                  ;; index of the
+                                  ;; segment (as)
+                                  (dtype-argops/index-of
+                                    segment
+                                    (f/reduce-max
+                                      segment)))))
          segments-shift
-         (f/* alpha smallest-index-of-max-per-segment)
+           (f/* alpha smallest-index-of-max-per-segment)
          segments-shift (volatile! segments-shift)
          next-shift! (fn []
                        (let [shift (first @segments-shift)
@@ -532,6 +556,34 @@
      (-> (dtt/reshape b [segment-count segment-length])
          (dtt/map-axis map-fn)
          (dtt/reshape [N])))))
+
+(defn bind*
+  "
+  Like [[bind]] but handles multiple inputs.
+
+  This is slightly different from [[bind]], for non maximally sparse vectors,
+  this 'auto thins' the result.
+  "
+  ([hdvs] (bind* hdvs default-opts))
+  ([hdvs {:bsdc-seg/keys [segment-count segment-length]}]
+   (indices->hv (dtype/emap
+                 #(fm/mod % segment-length)
+                 :int8
+                 (-> (dtt/reduce-axis
+                      (map #(dtt/reshape %
+                                         [segment-count
+                                          segment-length])
+                           hdvs)
+                      dtype-argops/argmax)
+                     (dtt/reduce-axis f/sum 0))))))
+
+(comment
+  (doseq [_ (range 100)]
+    (let [a (->hv)
+          b (->hv)
+          c1 (bind a b)
+          c2 (bind* [a b])]
+      (assert (= c1 c2)))))
 
 (defn unbind
   "
@@ -576,6 +628,22 @@
                             (constantly
                              (mod n segment-length)))
                 opts)))
+
+
+;; (let [a (->hv)] (= (bind a (unit-vector-n 1)) (permute a)))
+
+
+;; (let [a (->hv)]
+
+;;   ;; (=
+;;   ;;  (bind a (unit-vector-n 1))
+;;   ;;  (permute a))
+
+;;   (= a (unbind
+;;         (permute a)
+;;         (unit-vector-n 1))))
+
+
 
 
 
@@ -785,14 +853,82 @@
 
 
   ;; our binds are the same for maximally sparse vectors
+  ;; for non maximally sparse, my version permutes the other version 'thins' at the same time
 
   (doseq [n (range 100)]
     (let [a (->hv)
           b (->hv)
+          ab (f/+ a b)
+          d (->hv)
           c1 (bind a b)
-          c2 (bind2 a b default-opts)]
-      (assert (= c1 c2))))
-  nil
+          c2 (bind2 a b default-opts)
+          abd1 (bind ab d)
+          abd2 (bind2 ab d default-opts)]
+      (assert (= c1 c2))
+      (assert (= (unbind c2 a) (unbind c1 a)))
+      ;; (assert (= abd1 ab  22 ))
+      ))
+
+
+  (def a (->hv))
+  (def b (->hv))
+
+  (let [hdvs [a b]]
+    (dtype/emap
+     #(fm/mod % 2)
+     :int8
+     (-> (f/+ (dtt/reshape [0 0 1 0 0 1] [2 3])
+              (dtt/reshape [0 0 1 0 0 1] [2 3]))
+         (dtt/reduce-axis dtype-argops/argmax))))
+
+
+
+
+  (->
+
+   (f/+ (dtt/reshape [0 0 1 0 0 1] [2 3])
+        (dtt/reshape [0 0 1 0 0 1] [2 3]))
+   (dtt/reduce-axis dtype-argops/argmax)
+   )
+
+
+  (dtype/emap
+   #(fm/mod % 2)
+   :int8
+   (-> [(dtt/reshape [0 0 1 0 0 1] [2 3])
+        (dtt/reshape [0 0 1 0 1 0] [2 3])]
+       (dtt/reduce-axis dtype-argops/argmax)
+       (dtt/reduce-axis f/sum)))
+
+
+  (let
+      [hdvs [a b]]
+      (= (bind a b)
+         (indices->hv (dtype/emap
+                       #(fm/mod % 500)
+                       :int8
+                       (-> (dtt/reduce-axis
+                            (map #(dtt/reshape % [20 500])
+                                 hdvs)
+                            dtype-argops/argmax)
+                           (dtt/reduce-axis f/sum 0))))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
   (def a
@@ -948,5 +1084,8 @@
     [(similarity a (thin (bundle a (weaken b 0.5))))
      (similarity a (thin (bundle a b)))])
   [0.76 0.58]
+
+
+
 
   )

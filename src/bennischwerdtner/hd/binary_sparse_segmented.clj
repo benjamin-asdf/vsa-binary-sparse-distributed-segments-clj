@@ -243,11 +243,13 @@
   "Returns a new vector where each segment of `a` is circularly by `n`."
   ([a n] (permute-n a n default-opts))
   ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
-   (-> a
-       (dtt/reshape [segment-count segment-length])
-       (dtt/map-axis
-        (fn [segment] (dtt/rotate segment [n])))
-       (dtt/reshape [N]))))
+   #_(-> a
+         (dtt/reshape [segment-count segment-length])
+         (dtt/map-axis
+          (fn [segment] (dtt/rotate segment [n])))
+         (dtt/reshape [N]))
+   (bind a (unit-vector-n n))))
+
 
 (defn permute
   "
@@ -476,6 +478,30 @@
 
   => true
 
+
+  This is communative and associative for maximally sparse vectors.
+  (Obviously the case for all hdvs the [[bind*]] implementation.
+
+  (require [bennischwerdtner.hd.binary-sparse-segmented :as hd])
+
+
+  (= (hd/bind (clj->vsa :a) (clj->vsa :b))
+     (hd/bind (clj->vsa :b) (clj->vsa :a)))
+  true
+
+  (= (hd/bind
+      (clj->vsa :c)
+      (hd/bind (clj->vsa :a)
+               (clj->vsa :b)))
+     (hd/bind (clj->vsa :b)
+              (hd/bind
+               (clj->vsa :c)
+               (clj->vsa :a))))
+  true
+
+
+
+
   This is *not* a self-inverse bind. To unbind, you use [[unbind]].
 
   Implementation: A Segment wise shift
@@ -529,18 +555,18 @@
   ([a b alpha
     {:bsdc-seg/keys [N segment-count segment-length]}]
    (let [smallest-index-of-max-per-segment
-           (-> a
-               (dtt/reshape [segment-count segment-length])
-               (dtt/reduce-axis (fn [segment]
-                                  ;; the first max value
-                                  ;; index of the
-                                  ;; segment (as)
-                                  (dtype-argops/index-of
-                                    segment
-                                    (f/reduce-max
-                                      segment)))))
+         (-> a
+             (dtt/reshape [segment-count segment-length])
+             (dtt/reduce-axis (fn [segment]
+                                ;; the first max value
+                                ;; index of the
+                                ;; segment (as)
+                                (dtype-argops/index-of
+                                 segment
+                                 (f/reduce-max
+                                  segment)))))
          segments-shift
-           (f/* alpha smallest-index-of-max-per-segment)
+         (f/* alpha smallest-index-of-max-per-segment)
          segments-shift (volatile! segments-shift)
          next-shift! (fn []
                        (let [shift (first @segments-shift)
@@ -561,21 +587,26 @@
   "
   Like [[bind]] but handles multiple inputs.
 
-  This is slightly different from [[bind]], for non maximally sparse vectors,
-  this 'auto thins' the result.
+  This is slightly different from [[bind]] for non maximally sparse vectors,
+  it returns a thinned result, where [[bind]] returns a rotated result.
+
+  Arguably, this is the cleaner implementation. And [[bind]] might be scrabbed
+  in favor of it.
+
+  Zhonghao Yang 2023 (see lit.org)
   "
   ([hdvs] (bind* hdvs default-opts))
   ([hdvs {:bsdc-seg/keys [segment-count segment-length]}]
    (indices->hv (dtype/emap
-                 #(fm/mod % segment-length)
-                 :int8
-                 (-> (dtt/reduce-axis
-                      (map #(dtt/reshape %
-                                         [segment-count
-                                          segment-length])
-                           hdvs)
-                      dtype-argops/argmax)
-                     (dtt/reduce-axis f/sum 0))))))
+                  #(fm/mod % segment-length)
+                  :int8
+                  (-> (dtt/reduce-axis
+                        (map #(dtt/reshape %
+                                           [segment-count
+                                            segment-length])
+                          hdvs)
+                        dtype-argops/argmax)
+                      (dtt/reduce-axis f/sum 0))))))
 
 (comment
   (doseq [_ (range 100)]

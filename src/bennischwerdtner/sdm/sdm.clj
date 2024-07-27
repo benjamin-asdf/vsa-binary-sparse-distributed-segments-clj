@@ -1705,6 +1705,62 @@
   )
 
 
+(do
+  (alter-var-root
+   #'hd/default-opts
+   #(merge %
+           (let [dimensions (long 1e4)
+                 segment-count 20]
+             {:bsdc-seg/N dimensions
+              :bsdc-seg/segment-count segment-count
+              :bsdc-seg/segment-length
+              (/ dimensions segment-count)})))
+
+  (def m (sparse-sdm {:address-count (long 1e5)
+                      :address-density 0.00003
+                      :word-length (long 1e4)}))
+
+  (def d (hd/->seed))
+  (def d-related (hd/thin (hd/superposition (hd/->seed) d)))
+
+  ;; heteroassociative:
+  ;; d->a
+  ;; d-related->b
+
+  (def a (hd/->seed))
+  (def b (hd/->seed))
+
+  (do
+    (write m d a 1)
+    (write m d-related b 1))
+
+  ;; sanity check, the address content should be different from the address
+  (hd/similarity d
+                 (torch->jvm (:result (lookup m d 1 1))))
+  0.0
+
+  ;; query with
+  ;; top-k = 1
+
+  [:a
+   (hd/similarity a (torch->jvm (:result (lookup m d 1 1))))
+   :b
+   (hd/similarity b (torch->jvm (:result (lookup m d 1 1))))]
+  [:a 1.0 :b 0.0]
+
+  ;; top-k = 2
+  [:a
+   (hd/similarity a (torch->jvm (:result (lookup m d 2 1))))
+   :b
+   (hd/similarity b (torch->jvm (:result (lookup m d 2 1))))]
+  [:a 1.0 :b 1.0]
+
+  ;; ... look I get the superposition of both a and b,
+  ;; even though a and b are unrelated, they are possible continuations of `d`
+  ;; but `b` is only unmasked secondarily, in a more 'divergent mode' of querying.
+
+  )
+
 
 
 ;; what is the meaning of top-k > 1 ?
@@ -1725,7 +1781,7 @@
                       :word-length (long 1e4)}))
 
   (def d (hd/->seed))
-  (def  d-related (hd/thin (hd/superposition (hd/->seed) d)))
+  (def d-related (hd/thin (hd/superposition (hd/->seed) d)))
 
   (do
     (write m d d 1)
@@ -1777,6 +1833,8 @@
                      :datatype
                      :int8))
      (hd/->ones)))
+
+
 [0.55 1.0 1.0 1.0 1.0 0.05 true true]
 
 

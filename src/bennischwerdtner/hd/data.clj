@@ -12,8 +12,6 @@
             [tech.v3.datatype.argops :as dtype-argops]))
 
 
-
-
 ;; Literature:
 ;;
 ;; [1]
@@ -90,19 +88,22 @@
     (defn clj->vsa
       [obj]
       (or (@m obj) ((swap! m assoc obj (hd/->seed)) obj)))
-    (defn cleanup
+    (defn cleanup-verbose
       [q]
-      (:k (first (filter (comp #(< 0.1 %) :similarity)
-                         (sort-by :similarity
-                                  #(compare %2 %1)
-                                  (into []
-                                        (pmap
-                                         (fn [[k v]]
-                                           {:k k
-                                            :similarity
-                                            (hd/similarity v q)
-                                            :v v})
-                                         @m))))))))
+      (filter (comp #(< 0.1 %) :similarity)
+              (sort-by :similarity
+                       #(compare %2 %1)
+                       (into []
+                             (pmap (fn [[k v]]
+                                     {:k k
+                                      :similarity
+                                      (hd/similarity v q)
+                                      :v v})
+                                   @m)))))
+    (defn cleanup* [q] (map :k (cleanup-verbose q)))
+    (defn cleanup [q] (first (cleanup* q))))
+
+
 
   (cleanup (clj->vsa :a))
 
@@ -236,11 +237,10 @@
   Note that this reverses the ordering of the items, like repeated conj or into would.
 
   "
-  ([xs] (->permute-seq xs hd/default-opts))
-  ([xs opts]
-   (apply hd/superposition
-     (map-indexed (fn [i item] (hd/permute-n item i opts))
-                  (reverse xs)))))
+  [xs]
+  (apply hd/superposition
+    (map-indexed (fn [i item] (hd/permute-n item i))
+                 (reverse xs))))
 
 (defn permute-seq-conj
   "Returns a new hdv representing the permute-seq with
@@ -253,9 +253,8 @@
 
   This effectively reverses the order of `xs`, just as an iterative [[permute-seq-conj]] would.
   "
-  ([hxs xs] (permute-seq-into hxs xs hd/default-opts))
-  ([hxs xs opts]
-   (hd/superposition (hd/permute-n hxs (count xs) opts)
+  ([hxs xs]
+   (hd/superposition (hd/permute-n hxs (count xs))
                      (->permute-seq xs))))
 
 (defn permute-seq-nth
@@ -265,8 +264,7 @@
   Thereby making the return value similar to the `nth` item.
   Might also be called 'unmask index' or 'unquote index'.
   "
-  ([hxs index] (permute-seq-nth hxs index hd/default-opts))
-  ([hxs index opts] (hd/permute-n hxs (- index) opts)))
+  ([hxs index] (hd/permute-n hxs (- index))))
 
 ;; ---------------
 ;; unit tests
@@ -398,183 +396,75 @@
   except when the have the exact same order.
 
   Note that this reverses the ordering of the items, like repeated conj or into would.
+
+  --------
+  Not sure how much sense this makes since binding and permute is associate in this implementation.
+  You would need to revisit in case you want to use such a thing.
   "
-  ([xs] (->bound-seq xs hd/default-opts))
-  ([xs opts]
-   (hd/bind* (map-indexed (fn [i item]
-                            (hd/permute-n item i opts))
-                          (reverse xs))
-             opts)))
-
-(defn bound-seq-conj
-  "Returns a new hdv repsentin the bound seq with `e` added."
-  [hxs e]
+  [xs]
+  (hd/bind* (map-indexed (fn [i item] (hd/permute-n item i))
+                         (reverse xs))))
 
 
+;; working with bound seqs is not so easy, with this implementation
+;; Because permutation doesn't distribute over binding.
+;; see examples/permute_and_bind.clj in this repository
+;; so I leave this a bit empty for now.
+
+#_(defn bound-seq-conj
+    "Returns a new hdv repsenting the bound seq with `e` added."
+    [hxs e])
 
 
-  )
-
-(comment
-
-  (->bound-seq (map clj->vsa [:a :b :c]))
-
-  (assert
-   (=
-    (->bound-seq (map clj->vsa [:b :a]))
-    (hd/bind
-     (hd/permute-n (clj->vsa :a) 0)
-     (hd/permute-n (clj->vsa :b) 1))))
-
-
-  (=
-   (->bound-seq (map clj->vsa [:a :b :c]))
-   (hd/bind
-    (clj->vsa :c)
-    (hd/permute
-     (hd/bind
-      ))))
-
-  (hd/bind (hd/permute (clj->vsa :a)) (clj->vsa :b))
-
-
-  (hd/similarity
-   (hd/permute
-    (hd/bind
-     (hd/permute (clj->vsa :a))
-     (clj->vsa :b)))
-   (hd/bind
-    (hd/permute (hd/permute (clj->vsa :a)))
-    (hd/permute (clj->vsa :b))))
-
-
-  (let [a (hd/->seed)
-        b (hd/->seed)]
-    (=
-     (hd/bind
-      (hd/permute a)
-      (hd/permute b))
-     (hd/permute
-      (hd/bind a b)))
-
-
-
-
-    (=
-     (hd/bind
-      a
-      (hd/bind b (hd/unit-vector-n 1)))
-     (hd/bind a (hd/permute b)))
-
-
-    )
-
-  (=
-   (hd/bind* [(clj->vsa :a) (clj->vsa :b)
-              (hd/unit-vector-n 1)])
-   (hd/bind (clj->vsa :a)
-            (hd/bind (clj->vsa :b) (hd/unit-vector-n 1)))
-   (hd/bind (clj->vsa :a) (hd/permute (clj->vsa :b))))
-
-  ;;
-
-  (=
-   (hd/bind
-    (hd/bind
-     (hd/bind (clj->vsa :a) (clj->vsa :b))
-     (clj->vsa :c))
-    (clj->vsa :c))
-   (hd/bind
-    (hd/bind (clj->vsa :a) (clj->vsa :c))
-    (hd/bind (clj->vsa :b) (clj->vsa :c))))
-
-
-  (= (hd/bind (clj->vsa :a) (clj->vsa :b))
-     (hd/bind (clj->vsa :b) (clj->vsa :a)))
-  true
-
-  (= (hd/bind
-      (clj->vsa :c)
-      (hd/bind (clj->vsa :a)
-               (clj->vsa :b)))
-     (hd/bind (clj->vsa :b)
-              (hd/bind
-               (clj->vsa :c)
-               (clj->vsa :a))))
-  true
-
-
-
-
-
-
-  (assert
-   (=
-    (hd/permute (clj->vsa :b))
-    (hd/bind
-     (clj->vsa :b)
-     (hd/unit-vector-n 1))))
-
-
-
-
-
-
-
-
-  )
-
-
+;;
 ;; Replacing Elements
+;;
 
 (defn permute-seq-replace
   "Return a new hdv, representing the sequence where
   `old-e` at postion `i` is replaced with `new-e`.
   "
-  ([hxs i old-e new-e]
-   (permute-seq-replace hxs i old-e new-e hd/default-opts))
-  ([hxs i old-e new-e opts]
-   (hd/superposition (f/- hxs (hd/permute-n old-e i opts))
-                     (hd/permute-n new-e i opts))))
+  [hxs i old-e new-e]
+  (hd/superposition (f/- hxs (hd/permute-n old-e i))
+                    (hd/permute-n new-e i)))
 
 
 (defn bound-seq-replace
   "Return a new hdv, representing the sequence where
   `old-e` at postion `i` is replaced with `new-e`.
   "
-  ([hxs i old-e new-e]
-   (bound-seq-replace hxs i old-e new-e hd/default-opts))
-  ([hxs i old-e new-e opts]
-   (hd/bind (hd/unbind hxs (hd/permute-n old-e i opts))
-            (hd/permute-n new-e i opts))))
+  [hxs i old-e new-e]
+  (hd/bind (hd/unbind hxs (hd/permute-n old-e i))
+           (hd/permute-n new-e i)))
 
 (comment
-  (do (assert (nil? (cleanup (->bound-seq (map clj->vsa
-                                               [:a :b :c])))))
-      (assert (= (cleanup
-                   (hd/permute-n
-                     (hd/unbind
-                       (hd/unbind
-                         (->bound-seq (map clj->vsa
-                                        [:a :b :c]))
-                         (hd/permute-n (clj->vsa :a) 0))
-                       (hd/permute-n (clj->vsa :b) 1))
-                     -2))
-                 :c))
-      (assert (= (cleanup
-                   (hd/permute-n
-                     (hd/unbind
-                       (hd/unbind
-                         (bound-seq-replace (->bound-seq
-                                              (map clj->vsa
-                                                [:a :b :c]))
-                                            2
-                                            (clj->vsa :c)
-                                            (clj->vsa :d))
-                         (hd/permute-n (clj->vsa :a) 0))
-                       (hd/permute-n (clj->vsa :b) 1))
-                     -2))
-                 :d))))
+  (do
+    (assert (nil? (cleanup (->bound-seq (map clj->vsa
+                                             [:a :b :c])))))
+    (assert (= (cleanup
+                (hd/permute-n
+                 (hd/unbind
+                  (hd/unbind
+                   (->bound-seq (map clj->vsa
+                                     [:a :b :c]))
+                   (hd/permute-n (clj->vsa :a) 0))
+                  (hd/permute-n (clj->vsa :b) 1))
+                 -2))
+               :c))
+    (assert (= (cleanup
+                (hd/permute-n
+                 (hd/unbind
+                  (hd/unbind
+                   (bound-seq-replace (->bound-seq
+                                       (map clj->vsa
+                                            [:a :b :c]))
+                                      2
+                                      (clj->vsa :c)
+                                      (clj->vsa :d))
+                   (hd/permute-n (clj->vsa :a) 0))
+                  (hd/permute-n (clj->vsa :b) 1))
+                 -2))
+               :d))))
 
 
 ;; ------------------
@@ -585,24 +475,17 @@
 
   + noise (as usual).
   "
-  ([hxs indices]
-   (permute-seq-select hxs indices hd/default-opts))
-  ([hxs indices opts]
-   (apply hd/superposition
-          (map #(permute-seq-nth hxs % opts) indices))))
+  [hxs indices]
+  (apply hd/superposition
+    (map #(permute-seq-nth hxs %) indices)))
 
 (defn permute-seq-take
   "Returns a hdv that is the superposition
   of the first `n` items in `hxs`.
 
   See [[permute-seq-select]]."
-  ([n hxs] (permute-seq-take n hxs hd/default-opts))
-  ([n hxs opts] (permute-seq-select hxs (range n) opts)))
-
-
-
-
-
+  [n hxs]
+  (permute-seq-select hxs (range n)))
 
 (comment
   (do
@@ -630,18 +513,176 @@
 
 
 
+;; --------------------------
+;; Graphs
+;; --------------------------
+;;
+;; - Graph (G) made from vertices and edges.
+;; - Edges can be directed or undirected.
+;;
+
+
+;; --------------------------
+;; 1. Make a random hyper vector for each vertex.
+;; 2. An edge is represented by the bind of the two vertices.
+;; 3. The whole graph G is the superposition of all edges.
+;;
+;; - this doesn't work for directed graphs
+;;   (edges don't have a direction, bind is commutative)
+
+
+(def ->undirected-edge hd/bind)
+
+
+;;
+;; Saying that B follows A - it allows us to express causality.
+;; (Could be called 'ergo' to honor Braitenbergs Ergotrix)
+;;
+;;
+;; In [1], they use
+;;
+;; (hd/bind a (hd/permute b))
+;;
+;; (Note this would be a 2-k tuple of a bound-seq up top)
+;;
+;; This doesn't work in my implementation, because permute and bind are associative.
+;; I.e. the outcome of a ⊙ p(b) is the same as p(a) ⊙ b.
+;; Hence I don't get the a direction using permute.
+;;
+;;
+;; But I have another operation available that does have a direction,
+;; 'bind' with alpha = -1 (the same as unbind with the args flipped).
+;;
+;;
+(defn ->directed-edge
+  ([[a b]] (->directed-edge a b))
+  ([a b] (hd/bind a b -1)))
+
+(defn edge->source [edge query] (hd/bind edge query -1))
+
+(defn edge->destination [edge query] (hd/bind edge query))
+
+(defn ->undirected-graph
+  "Returns a hdv that represents the undirected graph of `edges`.
+  `edges` is a seq of pairs of vertices.
+  "
+  ([edges]
+   (apply hd/superposition (map ->undirected-edge edges))))
+
+(defn ->directed-graph
+  "Returns a hdv that represents the directed graph of `edges`.
+
+  `edges` is a seq of pairs of vertices.
+
+  This happens to be the same thing as a record or associative datastructure.
+
+  [a b] means a->b.
+
+
+  - This doesn't represent vertices without any edges
+  - You could either superpose the vertices, too. Or keep a second hdv
+  with the set of vertices around.
+
+  - For more discussion and usage see literature
+    https://arxiv.org/abs/2106.05268
+  "
+  [edges]
+  (apply hd/superposition (map ->directed-edge edges)))
+
+(comment)
+
 
 (comment
-  (= (clj->vsa :a) (hd/permute-n (clj->vsa :a) 0))
-  true
-  (def a (hd/->seed))
-  (= a (hd/bind a a))
+  ;; saying that :e and :c are connected to :d
+  (assert (= (cleanup* (hd/unbind (->undirected-graph
+                                   (map #(map clj->vsa %)
+                                        [[:a :e] [:a :b]
+                                         [:c :d] [:c :b]
+                                         [:d :e]]))
+                                  (clj->vsa :d)))
+             '(:e :c)))
+  ;; querying a directed graph for connectedness in
+  ;; this impl is binding with the start vertex.
+  (assert (= (cleanup* (hd/bind (->directed-graph
+                                 (map #(map clj->vsa %)
+                                      [[:a :e] [:a :b] [:c :b]
+                                       [:d :c] [:e :d]]))
+                                (clj->vsa :d)))
+             '(:c)))
+  (do
+    ;; querying for edge membership
+    (hd/similarity
+     (->directed-edge (clj->vsa :a) (clj->vsa :b))
+     (->directed-graph (map #(map clj->vsa %)
+                            [[:a :e] [:a :b] [:c :b] [:d :c]
+                             [:e :d]])))
+    ;; asking what follows :d
+    (assert (= (cleanup* (edge->destination
+                          (->directed-graph
+                           (map #(map clj->vsa %)
+                                [[:a :e] [:a :b] [:c :b]
+                                 [:d :c] [:e :d]]))
+                          (clj->vsa :d)))
+               '(:c)))
+    ;; and what goes into :d
+    (assert (= (cleanup* (edge->source
+                          (->directed-graph
+                           (map #(map clj->vsa %)
+                                [[:a :e] [:a :b] [:c :b]
+                                 [:d :c] [:e :d]]))
+                          (clj->vsa :d)))
+               '(:e)))
+
+    ;; ...
+    ;; You see something that is at first slightly strange, that is that the operations that look like
+    ;; they work for elements work for the whole.
+    ;;
+    ;; `edge->source` you thought is only for an `edge`.
+    ;; Not so in computing in superposition.
+    ;; The whole responds to element operations. It's kinda like there is always alowed to be noise,
+    ;; that the noise happens to be a datastructure for somebody else doesn't need to concern you.
+    ;;
+    ;; Same concept for when the sequence simply is similar as the first item, you can treat it as the first item if you want.
+    ;;
+    )
 
 
-  ;; not similar to anything
-
-
-
-  (require [bennischwerdtner.hd.binary-sparse-segmented :as hd])
+  ;; comparing graph similarity (edge membership) in superposition
+  [(hd/similarity (->directed-graph (map #(map clj->vsa %)
+                                         [[:a :e] [:a :b] [:c :b]
+                                          [:d :c] [:e :d]]))
+                  (->directed-graph (map #(map clj->vsa %)
+                                         [ ;; [:a :e]
+                                          ;; [:a :b]
+                                          [:c :b] [:d :c]
+                                          ;; [:e :d]
+                                          ])))
+   (hd/similarity (->directed-graph (map #(map clj->vsa %)
+                                         [[:a :e] [:a :b] [:c :b]
+                                          [:d :c] [:e :d]]))
+                  (->directed-graph (map #(map clj->vsa %)
+                                         [[:c :b] [:x :y]])))
+   (hd/similarity (->directed-graph (map #(map clj->vsa %)
+                                         [[:a :e] [:a :b] [:c :b]
+                                          [:d :c] [:e :d]]))
+                  (->directed-graph (map #(map clj->vsa %)
+                                         [[:x :y] [:z :u]])))]
+  [2.0 1.07 0.1]
+  ;; similarity > 1.0 because it's dense (i.e. not maximally sparse) btw.
 
   )
+
+
+(defn make-map
+  [kvps]
+  (apply hd/superposition (map (fn [[k v]] (hd/bind k v)) kvps)))
+
+(let [record (make-map
+              (map #(map clj->vsa %)
+                   {:a :x :b :y :c :z}))]
+  (cleanup (hd/unbind record (clj->vsa :a))))
+:x
+
+(let [kvp (hd/bind (clj->vsa :a) (clj->vsa :x))]
+  (cleanup (hd/unbind kvp (clj->vsa :a))))
+:x

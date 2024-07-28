@@ -243,13 +243,11 @@
   "Returns a new vector where each segment of `a` is circularly by `n`."
   ([a n] (permute-n a n default-opts))
   ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
-   #_(-> a
-         (dtt/reshape [segment-count segment-length])
-         (dtt/map-axis
-          (fn [segment] (dtt/rotate segment [n])))
-         (dtt/reshape [N]))
-   (bind a (unit-vector-n n))))
-
+   (-> a
+       (dtt/reshape [segment-count segment-length])
+       (dtt/map-axis (fn [segment]
+                       (dtt/rotate segment [n])))
+       (dtt/reshape [N]))))
 
 (defn permute
   "

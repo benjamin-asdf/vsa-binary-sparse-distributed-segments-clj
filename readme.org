@@ -9,7 +9,6 @@ At the same time, they have drastically reduced memory consumption.
 
 Blog post:
 
-
 ** Code
 
 Following the paper [[https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_with_Sparse_Vectors][High-Dimensional Computing with Sparse Vectors]] [Laiho,Poikonen,Kanerva,Lehtonen 2020].
@@ -105,7 +104,6 @@ We can envisage a programming paradigm that models something like a multiverse, 
 Similarly, a =multi-symbol= could resolve to either a list of things, or to a thing representing the set of things.
 
 
-
 * Sparse Distributed Memory
 
 
@@ -132,7 +130,6 @@ This was a quick way for me to implement a gpu version, making this reasonably f
 - start cider via dev.el, or start clojure via run.sh, or tell your tooling to use run.sh as clojure program
 
 
-
 * Acknowledgements
 
 Thanks to [[https://github.com/gigasquid/vsa-clj][Carin Meier's intro to VSA]].
@@ -142,36 +139,13 @@ Thanks to [[https://github.com/cnuernber/dtype-next][Chris Nuernberger's dtype n
 * Future
 
 - Dynamic sparsity mechanisms could perhaps represent different /levels of detail/, or parallel search processes[fn:2].
-
+- Develop datastructures, languages, tools, and a software philosophy for [[https://arxiv.org/abs/2106.05268][/Programming in superposition/]].
 
 
 * Literatrue
 
-** 1
+[[file:./lit.org]]
 
-Laiho et.al. 2015
-High-Dimensional Computing with Sparse Vectors
-https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_with_Sparse_Vectors
-
-** 2
-
-Schlegel et.al. 2021  A comparison of Vector Symbolic Architectures
-
-http://www.arxiv.org/abs/2001.11797
-arXiv:2001.11797
-
-** 3
-
-Pentti Kanerva. Hyperdimensional computing: An introduction to computing in distributed representation with
-high-dimensional random vectors. Cognitive Computation, 1(2):139–159, 2009. doi:10.1007/s12559-009-9009-8.
-
-
-This is really amazing, deep computing analysis, properties of HDC made intuitive, and Kanerva writes down the algebra for why the examples of work:
-
-Talk versions (they are at most appetizers for the book chapter above):
-
-- https://youtu.be/1g5VEcnG6fI?si=lC9xAKZEL0hzKk3A
-- https://youtu.be/zUCoxhExe0o?si=KOQ5gkSHvI5DMOm3
 
 * Footnotes
 

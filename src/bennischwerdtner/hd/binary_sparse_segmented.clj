@@ -71,7 +71,7 @@
                       {:bsdc-seg/N dimensions
                        :bsdc-seg/segment-count segment-count
                        :bsdc-seg/segment-length
-                         (/ dimensions segment-count)}))))
+                       (/ dimensions segment-count)}))))
 
 
 (defn ->empty
@@ -175,7 +175,6 @@
 ;; This also called a seed vector in the literature
 (def ->seed ->hv)
 
-;; good enough for my needs
 (defn hv?
   "Returns true when `x` is a hypervector."
   ([x] (hv? x default-opts))
@@ -204,7 +203,7 @@
 (defn similarity
   "
   Returns a `similarity` of `a` and `b`.
-  I take the overlap and normalize it between 0 and 1.
+  I take the overlap where they are above 0 and normalize it between 0 and 1.
 
   0 is not similar.
   1 is similar.
@@ -219,20 +218,6 @@
       segment-count)))
 
 
-
-(let [a [0 2 0] b [0 1 0]]
-  (f/sum (f/* a (f/< 0 b))))
-
-(let [a [0 2 0 1] b [0 1 0 1]]
-  (/ (f/dot-product a b) 2.0)
-  ;; (f/sum (f/* a (f/< 0 b)))
-  )
-
-
-
-
-
-
 ;;
 ;; -------------------
 ;; 3. Permutation
@@ -240,14 +225,12 @@
 ;;
 
 (defn permute-n
-  "Returns a new vector where each segment of `a` is circularly by `n`."
+  "Returns a new hdv where `a` is blockwise permuted by `n` segments."
   ([a n] (permute-n a n default-opts))
   ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
-   (-> a
-       (dtt/reshape [segment-count segment-length])
-       (dtt/map-axis (fn [segment]
-                       (dtt/rotate segment [n])))
-       (dtt/reshape [N]))))
+   (dtt/rotate a [(* n segment-length)])))
+
+(defn permute-inner-n [a n])
 
 (defn permute
   "
@@ -257,17 +240,15 @@
   This is useful:
 
   - To represent the quotation `'A` of `A`
-  - To represent causality, direction or something in a set:
+  - To represent causality or direction:
 
   E.g.
-  (bundle A (permute B))
+  (superposition A (permute B))
   For 'B follows A'
 
   More generally, this can be used to encode sequences with a sumset (see below), by permuting the ith element ith times.
 
-  - To randomize vectors (random permutation) (not sure how relevant with BSDC)
-
-"
+  - To randomize vectors (random permutation) (not sure how relevant with BSDC)"
   [a]
   (permute-n a 1))
 
@@ -282,6 +263,8 @@
       [n (range 500)]
       (let [a (->hv)]
         (t/is (= a (permute-inverse (permute a)))))))
+
+
 
 
 
@@ -312,7 +295,6 @@
   (comp dtt/->tensor f/+))
 
 (def superposition bundle)
-
 
 (defn thin-pth-modulo
   "Returns a new thinned vector derived from `a` where 1 non-zero bit per segment in `a` is left over.
@@ -605,7 +587,6 @@
                           hdvs)
                         dtype-argops/argmax)
                       (dtt/reduce-axis f/sum 0))))))
-
 (comment
   (doseq [_ (range 100)]
     (let [a (->hv)
@@ -633,21 +614,24 @@
   ;; I swap this here so the mapping is left
   [a b] (bind b a -1))
 
+
 (defn unit-vector-n
   "
   Returns the `n` unit vector.
 
-  This is the vector, that when bound [[bind]] with `a`, returns the same vector as `permuting` `a` with count `n`.
+  This is the vector, that when bound [[bind]] with `a`, returns the same vector
+  as rotating each segmente of a by n.
+
 
   (let [a (->hv)]
-   (= (bind a (unit-vector-n 3)) (permute-n a 3)))
+   (= (bind a (unit-vector-n 3)) (permute-inner-n a 3)))
   => true
 
   (let [a (->hv)]
-   (= (bind a (unit-vector-n 1)) (permute a)))
+   (= (bind a (unit-vector-n 1)) (permute-inner a)))
   => true
 
-  See [[permute-n]].
+  See [[permute-inner-n]].
   "
   ([n] (unit-vector-n n default-opts))
   ([n
@@ -657,22 +641,6 @@
                             (constantly
                              (mod n segment-length)))
                 opts)))
-
-
-;; (let [a (->hv)] (= (bind a (unit-vector-n 1)) (permute a)))
-
-
-;; (let [a (->hv)]
-
-;;   ;; (=
-;;   ;;  (bind a (unit-vector-n 1))
-;;   ;;  (permute a))
-
-;;   (= a (unbind
-;;         (permute a)
-;;         (unit-vector-n 1))))
-
-
 
 
 
@@ -941,25 +909,6 @@
                                  hdvs)
                             dtype-argops/argmax)
                            (dtt/reduce-axis f/sum 0))))))
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
   (def a
     (indices->hv
      [0 0 0 0]
@@ -1011,7 +960,8 @@
 ;; 'thin' was taken, 'drop' was a clojure.core function
 ;;
 ;; 'weaken'?
-
+;;
+;;
 (defn weaken
   "Returns a weakened vector by dropping segment bits from `a`.
 
@@ -1057,11 +1007,17 @@
      (doall (map (fn [idx-in-seg i]
                    (when (<= segmentwise-cutoff idx-in-seg)
                      (dtype/set-value! v i 1)))
-              indices
-              (f/+ (f/* (range segment-count)
-                        segment-length)
-                   indices)))
+                 indices
+                 (f/+ (f/* (range segment-count)
+                           segment-length)
+                      indices)))
      (dtt/->tensor v tensor-opts))))
+
+
+(comment
+  (dtt/reduce-axis
+   (dtt/reshape (range 10) [2 5])))
+
 
 (comment
   ;; factor of 0 doesn't change anything
@@ -1112,9 +1068,4 @@
         b (->hv)]
     [(similarity a (thin (bundle a (weaken b 0.5))))
      (similarity a (thin (bundle a b)))])
-  [0.76 0.58]
-
-
-
-
-  )
+  [0.76 0.58])

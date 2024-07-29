@@ -30,7 +30,7 @@
      c (dtt/->tensor [1 1 -1 -1])
      bind (fn [x y] (f/* x y))
      permute (fn [x] (dtt/rotate x [1]))]
-    (= (bind (permute a) (permute b)) (permute (bind a b))))
+  (= (bind (permute a) (permute b)) (permute (bind a b))))
 true
 
 (dotimes
@@ -65,7 +65,8 @@ nil
     ;; compose a bind with 2 times the permute
     ;; unit vector
     (hd/bind* [(clj->vsa :a) (clj->vsa :b)
-               (hd/unit-vector-n 1) (hd/unit-vector-n 1)])
+               (hd/unit-vector-n 1)
+               (hd/unit-vector-n 1)])
     ;; ------------
     ;;  These are all equivalent
     ;; ------------
@@ -88,3 +89,11 @@ nil
                         (hd/unit-vector-n 1)))
       (hd/bind (clj->vsa :a) (hd/permute (clj->vsa :b)))
       (hd/permute (hd/bind (clj->vsa :a) (clj->vsa :b))))))
+
+
+
+;; ------------------------
+;; This is similar to the need for a non commutative bind, which we have available, see
+;; data.clj -> ->directed-edge
+;;
+;;

@@ -361,6 +361,9 @@
    1))
 
 
+;; ---------------------------------
+;; Write
+;; ---------------------------------
 
 ;;
 ;;               WORD IN REGISTER
@@ -390,8 +393,8 @@
                   address-locations
                   (py.. (py/get-item content-matrix
                                      address-locations)
-                    (add_ input-word)
-                    (clamp_ :min 0 :max counter-max)))))
+                        (add_ input-word)
+                        (clamp_ :min 0 :max counter-max)))))
 
 (defn write-coo!
   [content-matrix address-locations input-word]
@@ -511,7 +514,7 @@
  |  |        |   |      C               |
  |  |        |   |                      |
  +--+        +---+----------------------+
-  y              |
+  y            s0| s1 , ... segment-count
                  |
                  | SUM
                  |
@@ -531,6 +534,9 @@
              +--------------------------+
 
                output hdv
+
+              top-k non zero bits per segment
+
 
   See [[hd/maximally-sparse?]].
   "
@@ -568,7 +574,7 @@
                         0
                         (py.. (torch/div
                                (torch/sum (py.. topk-result
-                                            -values))
+                                                -values))
                                ;; also divide by top-k?
                                ;;
                                ;; scaling this with the
@@ -587,7 +593,7 @@
                                ;; account themselves.
                                ;;
                                (* segment-count address-location-count))
-                          item))
+                              item))
           :result
           (do
             ;; you don't need to synchronize cuda
@@ -1132,8 +1138,8 @@
 ;;                             t0                        t1
 ;;
 ;;
-;; 2. When decoding, the resulting activation set is the union set of active locations,
-;;    Including the ones activated j steps in the past.
+;; 2. When decoding, the resulting activation set is the union of active locations,
+;;    Including the ones activated (1...k) steps in the past.
 ;;
 ;;
 ;;  t0:
@@ -1148,16 +1154,18 @@
 ;;      +-^-----+         +---+
 ;;        |                   ^
 ;;        |                   |
-;;     future state:        { a0 }  activation set
+;;     future state:        { a0 }  activation set (now)
 ;;     [ a1, a2, a3, ...]
 ;;
 ;;
-
+;;     at each times step,
+;;     some a-lines will be on in the future
 ;;
 ;;
 ;;
 ;;
 ;;  t1:
+;;  the a-lines are still on for a while
 ;;  decode with `b`
 ;;
 ;;
@@ -1169,7 +1177,7 @@
 ;;       |                +---+
 ;;    future state:          ^
 ;;   [a2,a3, ...]            |
-;;   [b1,b2, ...]         { a1 , b0 }  activation set
+;;   [b1,b2, ...]         { a1 , b0 }  activation set (now)
 ;;
 ;;
 ;;
@@ -1550,38 +1558,7 @@
 
 
   ;; 1.9s for 10 with density 0.002, M = 1e5, depends heavily on the address density
-
-  #_(do
-    (def k-fold-memory
-      (->k-fold-memory
-       {:k-delays 6
-        :stop? (fn [acc next-outcome]
-                 (or ;; (when (diverging? acc next-outcome)
-                  ;;   :diverging)
-                  (when (< (:confidence next-outcome)
-                           ;; 0.1 is a good value for 100 segment hdvs
-                           0.1)
-                    :low-confidence)))
-        :address-count (long 1e6)
-        ;; :address-density 0.00001
-        :address-density 0.000001
-        :word-length (long 1e4)
-        ;; :address-count (long 1e6)
-        ;; you need more density, because
-        ;; we thin it out over the delays
-        ;; :address-density 0.00075
-        ;; :word-length (long 1e4)
-        }))
-    (time (doseq [t-seq (take 100 t-sequences)]
-            (reset k-fold-memory)
-            (write-xs! k-fold-memory (map T t-seq) 1)))
-    (for
-        [t-seq (take 100 t-sequences)]
-        (do
-          (reset k-fold-memory)
-          (similarities
-           (map T t-seq)
-           (lookup-xs k-fold-memory (T (first t-seq)) 1))))))
+  )
 
 
 ;; ---------------------------------------
@@ -1664,18 +1641,8 @@
              :address-density 0.00003
              :k-delays 6
              :stop? (fn [acc next-outcome]
-                      (or ;; (when (diverging?
-                        ;; acc
-                        ;; next-outcome)
-                        ;;   :diverging)
-                        (when (< (:confidence next-outcome)
-                                 ;; 0.1 is a
-                                 ;; good value
-                                 ;; for 100
-                                 ;; segment
-                                 ;; hdvs
-                                 0.05)
-                          :low-confidence)))
+                      (when (< (:confidence next-outcome) 0.05)
+                        :low-confidence))
              :word-length (long 1e4)}))
         (time (doseq [t-seq (take 1000 t-sequences)]
                 (reset k-fold-memory)
@@ -1699,143 +1666,138 @@
 )
 
 
-
-
 (comment
-  )
 
-
-(do
-  (alter-var-root
-   #'hd/default-opts
-   #(merge %
-           (let [dimensions (long 1e4)
-                 segment-count 20]
-             {:bsdc-seg/N dimensions
-              :bsdc-seg/segment-count segment-count
-              :bsdc-seg/segment-length
-              (/ dimensions segment-count)})))
-
-  (def m (sparse-sdm {:address-count (long 1e5)
-                      :address-density 0.00003
-                      :word-length (long 1e4)}))
-
-  (def d (hd/->seed))
-  (def d-related (hd/thin (hd/superposition (hd/->seed) d)))
-
-  ;; heteroassociative:
-  ;; d->a
-  ;; d-related->b
-
-  (def a (hd/->seed))
-  (def b (hd/->seed))
+  ;; ---------------------------------------------------------
+  ;; what is the meaning of top-k > 1 ?
+  ;; ---------------------------------------------------------
 
   (do
-    (write m d a 1)
-    (write m d-related b 1))
+    (alter-var-root
+     #'hd/default-opts
+     #(merge %
+             (let [dimensions (long 1e4)
+                   segment-count 20]
+               {:bsdc-seg/N dimensions
+                :bsdc-seg/segment-count segment-count
+                :bsdc-seg/segment-length
+                (/ dimensions segment-count)})))
 
-  ;; sanity check, the address content should be different from the address
-  (hd/similarity d
-                 (torch->jvm (:result (lookup m d 1 1))))
-  0.0
+    (def m (sparse-sdm {:address-count (long 1e5)
+                        :address-density 0.00003
+                        :word-length (long 1e4)}))
 
-  ;; query with
-  ;; top-k = 1
+    (def d (hd/->seed))
+    (def d-related (hd/thin (hd/superposition (hd/->seed) d)))
 
-  [:a
-   (hd/similarity a (torch->jvm (:result (lookup m d 1 1))))
-   :b
-   (hd/similarity b (torch->jvm (:result (lookup m d 1 1))))]
-  [:a 1.0 :b 0.0]
-
-  ;; top-k = 2
-  [:a
-   (hd/similarity a (torch->jvm (:result (lookup m d 2 1))))
-   :b
-   (hd/similarity b (torch->jvm (:result (lookup m d 2 1))))]
-  [:a 1.0 :b 1.0]
-
-  ;; ... look I get the superposition of both a and b,
-  ;; even though a and b are unrelated, they are possible continuations of `d`
-  ;; but `b` is only unmasked secondarily, in a more 'divergent mode' of querying.
-
-  )
+    (do
+      (write m d d 1)
+      (write m d-related d-related 1))
 
 
+    ;; top-k = 1 I get something out that is ca 50% d
+    (hd/similarity d-related
+                   (torch->jvm (:result (lookup m d 1 1))))
 
-;; what is the meaning of top-k > 1 ?
+    ;; and 100% d
+    (hd/similarity d
+                   (torch->jvm (:result (lookup m d 1 1))))
+    ;; with top-k = 2 you get both of them out,
+    ;; querying with with either of them
+    ;;
+    ;; intuitively, this is because they
+    ;; share 50% of their address locations. So
+    ;; those bit counters are high, but not the
+    ;; highest. with top-k > 1, we *unmask* the
+    ;; relatively high
+    ;; ("secondary") bit counters, this returns us
+    ;; the superposition of *related* addresses
+    ;;
+    (hd/similarity d
+                   (torch->jvm (:result (lookup m d 2 1))))
+    (hd/similarity d-related
+                   (torch->jvm (:result (lookup m d 2 1))))
+    (hd/similarity d-related
+                   (torch->jvm
+                    (:result (lookup m d-related 2 1))))
+    ;; to sanity check, a random seed (not stored)
+    ;; will not result in anything resembling
+    ;; anything else, even if top-k is 'high'
+    (let [e (hd/->seed)]
+      (hd/similarity e
+                     (torch->jvm (:result
+                                  (lookup m e 10 1)))))
+    ;; but top-k == segment-length actually results
+    ;; in 'everything'
+    (= (let [e (hd/->seed)]
+         (hd/similarity e
+                        (torch->jvm
+                         (:result (lookup m e 500 1)))))
+       1.0)
+    (= (let [e (hd/->seed)]
+         (dtt/->tensor (torch->jvm (:result
+                                    (lookup m e 500 1)))
+                       :datatype
+                       :int8))
+       (hd/->ones)))
 
-(do
-  (alter-var-root
-   #'hd/default-opts
-   #(merge %
-           (let [dimensions (long 1e4)
-                 segment-count 20]
-             {:bsdc-seg/N dimensions
-              :bsdc-seg/segment-count segment-count
-              :bsdc-seg/segment-length
-              (/ dimensions segment-count)})))
 
-  (def m (sparse-sdm {:address-count (long 1e5)
-                      :address-density 0.00003
-                      :word-length (long 1e4)}))
-
-  (def d (hd/->seed))
-  (def d-related (hd/thin (hd/superposition (hd/->seed) d)))
+  [0.55 1.0 1.0 1.0 1.0 0.05 true true]
 
   (do
-    (write m d d 1)
-    (write m d-related d-related 1))
+    (alter-var-root
+     #'hd/default-opts
+     #(merge %
+             (let [dimensions (long 1e4)
+                   segment-count 20]
+               {:bsdc-seg/N dimensions
+                :bsdc-seg/segment-count segment-count
+                :bsdc-seg/segment-length
+                (/ dimensions segment-count)})))
 
+    (def m (sparse-sdm {:address-count (long 1e5)
+                        :address-density 0.00003
+                        :word-length (long 1e4)}))
 
-  ;; top-k = 1 I get something out that is ca 50% d
-  (hd/similarity d-related
-                 (torch->jvm (:result (lookup m d 1 1))))
+    (def d (hd/->seed))
+    (def d-related (hd/thin (hd/superposition (hd/->seed) d)))
 
-  ;; and 100% d
-  (hd/similarity d
-                 (torch->jvm (:result (lookup m d 1 1))))
-  ;; with top-k = 2 you get both of them out,
-  ;; querying with with either of them
-  ;;
-  ;; intuitively, this is because they
-  ;; share 50% of their address locations. So
-  ;; those bit counters are high, but not the
-  ;; highest. with top-k > 1, we *unmask* the
-  ;; relatively high
-  ;; ("secondary") bit counters, this returns us
-  ;; the superposition of *related* addresses
-  ;;
-  (hd/similarity d
-                 (torch->jvm (:result (lookup m d 2 1))))
-  (hd/similarity d-related
-                 (torch->jvm (:result (lookup m d 2 1))))
-  (hd/similarity d-related
-                 (torch->jvm
-                  (:result (lookup m d-related 2 1))))
-  ;; to sanity check, a random seed (not stored)
-  ;; will not result in anything resembling
-  ;; anything else, even if top-k is 'high'
-  (let [e (hd/->seed)]
-    (hd/similarity e
-                   (torch->jvm (:result
-                                (lookup m e 10 1)))))
-  ;; but top-k == segment-length actually results
-  ;; in 'everything'
-  (= (let [e (hd/->seed)]
-       (hd/similarity e
-                      (torch->jvm
-                       (:result (lookup m e 500 1)))))
-     1.0)
-  (= (let [e (hd/->seed)]
-       (dtt/->tensor (torch->jvm (:result
-                                  (lookup m e 500 1)))
-                     :datatype
-                     :int8))
-     (hd/->ones)))
+    ;; heteroassociative:
+    ;; d->a
+    ;; d-related->b
 
+    (def a (hd/->seed))
+    (def b (hd/->seed))
 
-[0.55 1.0 1.0 1.0 1.0 0.05 true true]
+    (do
+      (write m d a 1)
+      (write m d-related b 1))
+
+    ;; sanity check, the address content should be different from the address
+    (hd/similarity d
+                   (torch->jvm (:result (lookup m d 1 1))))
+    0.0
+
+    ;; query with
+    ;; top-k = 1
+
+    [:a
+     (hd/similarity a (torch->jvm (:result (lookup m d 1 1))))
+     :b
+     (hd/similarity b (torch->jvm (:result (lookup m d 1 1))))]
+    [:a 1.0 :b 0.0]
+
+    ;; top-k = 2
+    [:a
+     (hd/similarity a (torch->jvm (:result (lookup m d 2 1))))
+     :b
+     (hd/similarity b (torch->jvm (:result (lookup m d 2 1))))]
+    [:a 1.0 :b 1.0]
+
+    ;; ... look I get the superposition of both a and b,
+    ;; even though a and b are unrelated, they are possible continuations of `d`
+    ;; but `b` is only unmasked secondarily, in a more 'divergent mode' of querying.
+    ))
 
 
 

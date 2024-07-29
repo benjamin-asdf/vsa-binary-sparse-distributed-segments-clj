@@ -33,3 +33,10 @@ Pentti Kanerva 1993 Sparse Distributed Memory and Related Models
 * 6
 
 Pentti Kanerva /Sparse Distributed Memory/, 1988
+
+* 7
+
+Vector Symbolic Architectures as a Computing Framework for Emerging Hardware
+Denis Kleyko, Mike Davies, E. Paxon Frady, Pentti Kanerva, Spencer J. Kent, Bruno A. Olshausen, Evgeny Osipov, Jan M. Rabaey, Dmitri A. Rachkovskij, Abbas Rahimi, Friedrich T. Sommer
+
+https://arxiv.org/abs/2106.05268

@@ -1,17 +1,15 @@
 (ns bennischwerdtner.hd.data
   (:refer-clojure :exclude [replace set peek pop])
-  (:require [tech.v3.datatype.functional :as f]
-            [tech.v3.datatype :as dtype]
-            [tech.v3.tensor :as dtt]
-            [tech.v3.datatype.bitmap :as bitmap]
-            [fastmath.random :as fm.rand]
-            [fastmath.core :as fm]
-            [bennischwerdtner.hd.binary-sparse-segmented :as
-             hd]
-            [tech.v3.datatype.unary-pred :as unary-pred]
-            [tech.v3.datatype.argops :as dtype-argops]))
-
-
+  (:require
+   [tech.v3.datatype.functional :as f]
+   [tech.v3.datatype :as dtype]
+   [tech.v3.tensor :as dtt]
+   [tech.v3.datatype.bitmap :as bitmap]
+   [fastmath.random :as fm.rand]
+   [fastmath.core :as fm]
+   [bennischwerdtner.hd.binary-sparse-segmented :as hd]
+   [tech.v3.datatype.unary-pred :as unary-pred]
+   [tech.v3.datatype.argops :as dtype-argops]))
 
 
 ;; Literature:
@@ -55,12 +53,10 @@
   (defn cleanup* [q] (map :k (cleanup-verbose q)))
   (defn cleanup [q] (first (cleanup* q))))
 
-
-
-;; (def item-memory
-;;   (reify ItemMemory
-;;     (clj->vsa [this obj] (clj->vsa obj))
-;;     (cleanup [this q] (cleanup q))))
+(defn clj->vsa*
+  [obj]
+  (cond (sequential? obj) (map clj->vsa* obj)
+        :else (clj->vsa obj)))
 
 
 
@@ -80,9 +76,9 @@
 
   You might want to [[hd/thin]] the result."
   [& args]
-  (apply f/+ args))
+  (apply hd/superposition args))
 
-(defn union "See [[set]]." [sets] (apply f/+ sets))
+(defn union "See [[set]]." [& sets] (apply hd/superposition sets))
 
 (defn intersection
   "Return a hdv that represents the *intersection* between `sets`.
@@ -101,9 +97,25 @@
   "
   ([sets] (intersection (count sets) sets))
   ([threshold sets]
-   (dtt/->tensor (f/<= threshold (union sets))
+   (dtt/->tensor (f/<= threshold (apply union sets))
                  :datatype
                  :int8)))
+
+(defn difference
+  "Returns the hdv reprenting the difference between `a` and `sets`.
+
+  It is roughly all the elements that are in a, but not in `sets`.
+
+  If `a` is a multiset, this makes the surving elements into a
+  'single' set.
+
+  If you want to compute with multisets, use [[f/-]] directly.
+  "
+  [a & sets]
+  (dtt/->tensor (f/< 0
+                     (f/- a (apply hd/superposition sets)))
+                :datatype
+                :int8))
 
 ;; It works the same for multisets, too
 (def multiset set)
@@ -212,7 +224,7 @@
 
 ;; V1 - permute each element by p0,p1,p2,... then combine with superposition
 
-(defn ->permute-seq
+(defn superpoisiton-seq
   "Returns an hdv that represents the sequence `xs`, which is a seq of hypervectors.
 
   Each data element of the sequence is permuted `i` times via [[hd/permute]],
@@ -254,7 +266,7 @@
                  (reverse xs))))
 
 (defn permute-seq-conj
-  "Returns a new hdv representing the permute-seq with
+  "Returns a new hdv representing the superpoisiton-seq with
   `e` added to the front of `hxs`."
   ([hxs e] (hd/superposition e (hd/permute hxs))))
 
@@ -266,7 +278,7 @@
   "
   ([hxs xs]
    (hd/superposition (hd/permute-n hxs (count xs))
-                     (->permute-seq xs))))
+                     (superpoisiton-seq xs))))
 
 (defn permute-seq-nth
   "Returns a new hdv where the nth item of `hxs`, a 'permute seq'
@@ -284,11 +296,11 @@
   (do
     ;; or by rotating the seq n times and probe
     ;; a perm-mapped seq is similar to its first elm
-    (assert (= (cleanup (->permute-seq (map clj->vsa
-                                         [:a :b])))
+    (assert (= (cleanup (superpoisiton-seq (map clj->vsa
+                                             [:a :b])))
                :b))
     ;; permute inverse 3 times and you are at :d
-    (assert (= (cleanup (-> (->permute-seq
+    (assert (= (cleanup (-> (superpoisiton-seq
                               (map clj->vsa
                                 (reverse [:a :b :c :d :e])))
                             (hd/permute-n -3)))
@@ -296,8 +308,8 @@
     ;; shifting stuff adding an item to the front is
     ;; easy
     (assert
-      (= (let [hxs (->permute-seq [(clj->vsa :b)
-                                   (clj->vsa :a)])
+      (= (let [hxs (superpoisiton-seq [(clj->vsa :b)
+                                       (clj->vsa :a)])
                new-item (clj->vsa :0)
                new-hsx (hd/superposition new-item
                                          ;; shift
@@ -316,43 +328,41 @@
     (assert (= (hd/similarity
                  (clj->vsa :y)
                  (permute-seq-into
-                   (->permute-seq [(clj->vsa :a)
-                                   (clj->vsa :b)])
+                   (superpoisiton-seq [(clj->vsa :a)
+                                       (clj->vsa :b)])
                    [(clj->vsa :x) (clj->vsa :y)]))
                1.0))
-    (assert (= (hd/similarity
-                 (clj->vsa :a)
-                 (permute-seq-into
-                   (->permute-seq [(clj->vsa :a)
-                                   (clj->vsa :b)])
-                   [(clj->vsa :x) (clj->vsa :y)]))
-               0.0))))
+    (assert (= (cleanup* (permute-seq-into
+                           (superpoisiton-seq
+                             [(clj->vsa :a) (clj->vsa :b)])
+                           [(clj->vsa :x) (clj->vsa :y)]))
+               '(:y)))))
 
 (comment
   (assert (= [(hd/similarity (clj->vsa :b)
                              (permute-seq-nth
-                               (->permute-seq (map clj->vsa
+                               (superpoisiton-seq (map clj->vsa
                                                 [:a :b :c]))
                                1))
               (hd/similarity (clj->vsa :a)
                              (permute-seq-nth
-                               (->permute-seq [(clj->vsa :a)
+                               (superpoisiton-seq [(clj->vsa :a)
                                                (clj->vsa :b)
                                                (clj->vsa
                                                  :c)])
                                1))]
              [1.0 0.0]))
   ;; nth with 0 is identity
-  (assert (= (permute-seq-nth (->permute-seq
+  (assert (= (permute-seq-nth (superpoisiton-seq
                                 [(clj->vsa :a) (clj->vsa :b)
                                  (clj->vsa :c)])
                               0)
-             (->permute-seq [(clj->vsa :a) (clj->vsa :b)
+             (superpoisiton-seq [(clj->vsa :a) (clj->vsa :b)
                              (clj->vsa :c)])))
   ;; nth with any number is not an error, but the
   ;; result is non-sense
   ;; (generally the case with HDC/VSA)
-  (assert (nil? (cleanup (permute-seq-nth (->permute-seq
+  (assert (nil? (cleanup (permute-seq-nth (superpoisiton-seq
                                             [(clj->vsa :a)
                                              (clj->vsa :b)
                                              (clj->vsa :c)])
@@ -361,9 +371,9 @@
 
 ;; V2 - permute like above but combine with [[hd/bind]].
 
-;; todo
-(defn ->bound-seq
-  "Like [[->permute-seq]] but combines via [[hd/bind]], not superposition.
+;; 'chain' ?
+(defn bound-seq
+  "Like [[superpoisiton-seq]] but combines via [[hd/bind]], not superposition.
 
   Each data element of the sequence is permuted `i` times via [[hd/permute]],
   then we take the bind.
@@ -391,43 +401,62 @@
   The resulting hdv is similar to *nothing* else, including no other hdv-sequences with similar items,
   except when the have the exact same order.
 
-  --------
-  Not sure how much sense this makes since binding and permute is associate in this implementation.
-  You would need to revisit in case you want to use such a thing.
+
+  I call this `chain` maybe, because the elements are all 'entangled',
+
+  [[hd/unbind]] gives you the *other elements*; Given a subset of elements.
   "
   [xs]
   (hd/bind* (map-indexed (fn [i item] (hd/permute-n item i))
                          xs)))
 
+(comment
+  ;; similar to nothing
+  (cleanup* (bound-seq (map clj->vsa [:a :b :c])))
+
+  (assert
+   (= (hd/permute (hd/bind (clj->vsa :a) (clj->vsa :b)))
+      (hd/bind (hd/permute (clj->vsa :a)) (hd/permute (clj->vsa :b))))))
+
+
+(defn bound-seq-conj
+  "Returns a new hdv repsenting the bound seq with `e` added."
+  [hxs e]
+  (hd/superposition e (hd/permute hxs)))
 
 (comment
+  ;; The usage of a bound seq seems at first contrived,
+  ;; but these constraints are useful for representing
+  ;; things like trees
+  ;; (below)
+  ;;
+  (assert (= (cleanup* (hd/permute-inverse
+                         (hd/unbind (bound-seq (map clj->vsa
+                                                 [:a :b]))
+                                    (clj->vsa :a))))
+             '(:b)))
+  (assert (= (cleanup* (hd/unbind
+                         (bound-seq (map clj->vsa [:a :b]))
+                         (hd/permute (clj->vsa :b))))
+             '(:a)))
+  (assert (empty? (cleanup*
+                    (hd/unbind
+                      (bound-seq (map clj->vsa [:a :b :c]))
+                      (hd/permute (clj->vsa :b)))))))
 
-  ;; similar to nothing
-  (cleanup* (->bound-seq (map clj->vsa [:a :b :c])))
-
-  (->bound-seq (map clj->vsa [:a :b :c]))
-
-  (= (hd/permute (hd/bind (clj->vsa :a) (clj->vsa :b)))
-     (hd/bind (hd/permute (clj->vsa :a)) (hd/permute (clj->vsa :b)))))
-
-
-#_(defn bound-seq-conj
-         "Returns a new hdv repsenting the bound seq with `e` added."
-         [hxs e])
 
 
 ;;
 ;; Replacing Elements
 ;;
 
-(defn permute-seq-replace
+(defn superposition-seq-replace
   "Return a new hdv, representing the sequence where
   `old-e` at postion `i` is replaced with `new-e`.
   "
   [hxs i old-e new-e]
   (hd/superposition (f/- hxs (hd/permute-n old-e i))
                     (hd/permute-n new-e i)))
-
 
 (defn bound-seq-replace
   "Return a new hdv, representing the sequence where
@@ -438,32 +467,32 @@
            (hd/permute-n new-e i)))
 
 (comment
-  (do
-    (assert (nil? (cleanup (->bound-seq (map clj->vsa [:a :b :c])))))
-    (assert (= (cleanup
-                (hd/permute-n
-                 (hd/unbind
-                  (hd/unbind
-                   (->bound-seq (map clj->vsa [:a :b :c]))
-                   (hd/permute-n (clj->vsa :a) 0))
-                  (hd/permute-n (clj->vsa :b) 1))
-                 -2))
-               :c))
-    (assert (= (cleanup
-                (hd/permute-n
-                 (hd/unbind
-                  (hd/unbind
-                   (bound-seq-replace (->bound-seq
-                                       (map clj->vsa
-                                            [:a :b :c]))
-                                      2
-                                      (clj->vsa :c)
-                                      (clj->vsa :d))
-                   (hd/permute-n (clj->vsa :a) 0))
-                  (hd/permute-n (clj->vsa :b) 1))
-                 -2))
-               :d)))
-  )
+  (do (assert (nil? (cleanup (bound-seq (map clj->vsa
+                                          [:a :b :c])))))
+      (assert (= (cleanup
+                   (hd/permute-n
+                     (hd/unbind
+                       (hd/unbind
+                         (bound-seq (map clj->vsa
+                                      [:a :b :c]))
+                         (hd/permute-n (clj->vsa :a) 0))
+                       (hd/permute-n (clj->vsa :b) 1))
+                     -2))
+                 :c))
+      (assert (= (cleanup
+                   (hd/permute-n
+                     (hd/unbind
+                       (hd/unbind
+                         (bound-seq-replace (bound-seq
+                                              (map clj->vsa
+                                                [:a :b :c]))
+                                            2
+                                            (clj->vsa :c)
+                                            (clj->vsa :d))
+                         (hd/permute-n (clj->vsa :a) 0))
+                       (hd/permute-n (clj->vsa :b) 1))
+                     -2))
+                 :d))))
 
 
 ;; ------------------
@@ -489,7 +518,7 @@
 (comment
   (do
     (assert (= (let [subseq (permute-seq-select
-                             (->permute-seq
+                             (superpoisiton-seq
                               (map clj->vsa
                                    (reverse (range 5))))
                              [0 2 3])]
@@ -499,7 +528,7 @@
                        (map clj->vsa (range 5))))
                [true false true true false]))
     (assert (= (let [subseq (permute-seq-nth
-                             (->permute-seq
+                             (superpoisiton-seq
                               (map clj->vsa
                                    (reverse (range 5))))
                              1)]
@@ -529,15 +558,15 @@
 ;; - this doesn't work for directed graphs
 ;;   (edges don't have a direction, bind is commutative)
 
-
 (def ->undirected-edge
-  (fn
-    ([[a b]] (hd/bind a b))
-    ([a b] (hd/bind a b))))
+  "Does [[hd/bind]] on the arguments."
+  (fn ([[a b]] (hd/bind a b)) ([a b] (hd/bind a b))))
+
 
 ;;
 ;; Saying that B follows A - it allows us to express causality.
 ;; (Could be called 'ergo' to honor Braitenbergs Ergotrix)
+;; This is conceptually a cons cell.
 ;;
 ;; Quoting [2]:
 ;; Plate 2003 was aware of this issue and propposed several non-commutative
@@ -603,9 +632,11 @@
     ;; querying for edge membership
     (hd/similarity
      (->directed-edge (clj->vsa :a) (clj->vsa :b))
-     (directed-graph (map #(map clj->vsa %)
-                            [[:a :e] [:a :b] [:c :b] [:d :c]
-                             [:e :d]])))
+     (directed-graph
+      (clj->vsa*
+       [[:a :e] [:a :b] [:c :b] [:d :c]
+        [:e :d]])))
+
     ;; asking what follows :d
     (assert (= (cleanup* (edge->destination
                           (directed-graph
@@ -655,7 +686,7 @@
                                          [[:a :e] [:a :b] [:c :b]
                                           [:d :c] [:e :d]]))
                   (directed-graph (map #(map clj->vsa %)
-                                         [[:x :y] [:z :u]])))]
+                                       [[:x :y] [:z :u]])))]
   [2.0 1.07 0.1]
   ;; similarity > 1.0 because it's dense (i.e. not maximally sparse) btw.
 
@@ -675,69 +706,65 @@
 ;;
 ;; The tree can be seen as a map where the keys are the traces like [:left :left :right] etc.
 ;;
-
-;;
-;; At [1], they use permutation for the depth of a trace,
-;; This won''t work because here, because permute is associative
-;; For instance, given the trace
-;;
 ;; trace:
 ;; right-right-left
 ;; At [1], they represent the trace with
 ;;
 ;; r ⊙ p(r) ⊙ p2(l)
 ;;
-;; This would expand here to
-;;
-;; ~
-;; r ⊙ pu ⊙ pu ⊙ pu ⊙ l
-;;
-;; (where pu is the permute unit vector)
-;;
-;; Since bind is associative, the 'depth information' is lost
-;;
-;; In other words, I simply see 3x permutations:
-;;
-;; r ⊙ l ⊙ pu ⊙ pu ⊙ pu
-;;
-;;
-;;
-;; We can solve this in multiple ways. Here I use well known marker for each depth and direction.
-;; We can also use superposition instead of bind to make traces.
 
+(def left-right-marker
+  {:left (hd/->seed) :right (hd/->seed)})
 
 ;;
 ;; You can also pick a fresh left right for each depth
 ;; depends on the usage
-;; this makes slightly more sense to me
-;;
-(def left-right-marker-depth
-  (memoize (fn [idx left-right] (hd/->seed))))
 ;;
 ;; These are alternative ideas:
-;;
+;; (def left-right-marker-depth
+;;   (memoize (fn [idx left-right] (hd/->seed))))
 ;; (def depth-marker "Returns a well-known seed vector for `i`." (memoize (fn [i] (hd/->seed))))
 ;; (def left-right-marker {:left (hd/->seed) :right (hd/->seed)})
 ;;
 
+(defn tree-trace*
+  "Returns a tree trace representation.
+
+  `trace` is a seq of hdvs."
+  [trace]
+  (bound-seq trace))
+
+(defn tree*
+  "Returns a tree representation,
+
+  `trace-leave-pairs`:
+  Each is of the form
+
+  [[a b c] x]
+
+  Where a,b,c and x are hdvs.
+
+  This is the generalized form of [[tree]].
+  a,b,c are allowed to be anything, so you can build 3-ary trees and so forth.
+
+  It does not use the well known seed markers [[left-right-marker]].
+  In case you want to compare trees build by [[tree]] and [[tree*]],
+  you need to know that you are using [[left-right-marker]] hdvs.
+
+  See [[tree-trace]], [[tree]].
+  "
+  [& trace-leave-pairs]
+  (apply hd/superposition
+         (map (fn [[trace leave]]
+                (hd/bind (tree-trace* trace) leave))
+              trace-leave-pairs)))
+
 (defn tree-trace
   "Returns a tree trace representation.
 
- `trace` is a sequence, presumably in a form like
-
- `[:left :right :left :left]`
-
-  It is up to the user.
-
-  The user can create traces with more than 2 branches per depth, for instance with
-
-  [0 1 2 0 1 2]
-
-  Each branch would be 3-way, with 0,1,2 designating 1 of 3 directions."
+  `trace` is a seq of :left or :right in symbolic domain."
   [trace]
-  (hd/bind* (map-indexed (fn [idx lr]
-                           (left-right-marker-depth idx lr))
-                         trace)))
+  (tree-trace* (map left-right-marker trace)))
 
 (defn tree
   "Returns a tree representation,
@@ -745,20 +772,16 @@
   `trace-leave-pairs`: Each a tuple of traces in symbolic domain and a leave hdv.
 
   Example:
-   [[:left :left :left] (clj->vsa :a)]
-   [[:left :right :left] (clj->vsa :b)])
+   [[:left :left :left] :a]
+   [[:left :right :left] :b])
 
-  This serves more as example, constructing a tree can be done in user space.
   It is the superposition of key-value pairs where the keys are similar to what is produced by [[tree-trace]].
   And the values are leaves.
 
   See [[tree-trace]].
   "
   [& trace-leave-pairs]
-  (apply hd/superposition
-    (map (fn [[trace leave]]
-           (hd/bind (tree-trace trace) leave))
-         trace-leave-pairs)))
+  (tree* (map #(update % 0 tree-trace) trace-leave-pairs)))
 
 (defn tree->leave
   "Returns a hdv that is similar to the leave of `tree` (a hdv),
@@ -777,16 +800,113 @@
   (hd/unbind tree leave))
 
 (comment
-  ;; given trees a and b and a leave on a, you find what 'the same leave' is for b
+  ;; tree capacity experiment
+
+  (for [N [5 10 20 50 100 150 200 500 1000 1500]]
+    (let [tree-spec (for [n (range N)]
+                      [(repeatedly (inc (rand-int 10))
+                                   #(rand-nth [:left :right]))
+                       (clj->vsa n)])
+          tree-spec (vals (update-vals (group-by first
+                                                 tree-spec)
+                                       first))
+          tree (apply tree tree-spec)]
+      [:N N
+       :mean
+       (f/mean
+        (for [n (range 20)]
+          (let [tree-elm (rand-nth tree-spec)]
+            (= (cleanup (second tree-elm))
+               (cleanup (tree->leave
+                         tree
+                         (first tree-elm)))))))]))
+
+  ;; - build a tree with N random traces, of a random length between 1 and 10
+  ;; - throw out duplicate traces, else the outcome is a superposition
+  ;; - query 20 times and report the mean success rate of recovering the leaf
+  ;;
+  ;; this is with segment-count 20
+
+
+  '([:N 5 :mean 1.0]
+    [:N 10 :mean 1.0]
+    [:N 20 :mean 1.0]
+    [:N 50 :mean 1.0]
+    [:N 100 :mean 1.0]
+    [:N 150 :mean 1.0]
+    [:N 200 :mean 1.0]
+    [:N 500 :mean 1.0]
+    [:N 1000 :mean 1.0]
+    [:N 1500 :mean 0.55])
+
+  ;; ... it goes down at 1500 only
+  ;;
+  ;; I think the power comes from the density, if we where to thin we would trade speed for accuracy.
+
+
+  ;; same thing with thinning already struggles with N = 5:
+  (for [N [5 10 20 50 100 150 200]]
+    (let [tree-spec (for [n (range N)]
+                      [(repeatedly (inc (rand-int 10))
+                                   #(rand-nth [:left :right]))
+                       (clj->vsa n)])
+          tree-spec (vals (update-vals (group-by first
+                                                 tree-spec)
+                                       first))
+          tree (hd/thin (apply tree tree-spec))]
+      [:N N
+       :mean
+       (f/mean
+        (for [n (range 20)]
+          (let [tree-elm (rand-nth tree-spec)]
+            (= (cleanup (second tree-elm))
+               (cleanup (tree->leave
+                         tree
+                         (first tree-elm)))))))]))
+
+  '([:N 5 :mean 0.35]
+    [:N 10 :mean 0.1]
+    [:N 20 :mean 0.0]
+    [:N 50 :mean 0.0]
+    [:N 100 :mean 0.0]
+    [:N 150 :mean 0.0]
+    [:N 200 :mean 0.0])
+  )
+
+
+
+
+
+
+
+
+(comment
+  ;; given trees a and b and a leave on a, you find
+  ;; what 'the same leave' is for b
   (let [trace-b (find-trace (tree [[:left :left :left]
-                                     (clj->vsa :a)]
-                                    [[:left :right :left]
-                                     (clj->vsa :b)])
+                                   (clj->vsa :a)]
+                                  [[:left :right :left]
+                                   (clj->vsa :b)])
                             (clj->vsa :b))
         tree2 (tree [[:left :left :left] (clj->vsa :a)]
-                      [[:left :right :left] (clj->vsa :c)])]
+                    [[:left :right :left] (clj->vsa :c)])]
     ;; ... in superposition
+    (cleanup (hd/unbind tree2 trace-b)))
+  ;; I thought this usage mode makes more sense.
+  ;; clj->vsa* to go from symbolic to hd domain, tree*
+  ;; a function in hd domain.
+  (let [trace-b (find-trace
+                  (apply tree*
+                    (clj->vsa* [[[:left :left :left] :a]
+                                [[:left :right :left] :b]]))
+                  (clj->vsa :b))
+        tree2 (apply tree*
+                (clj->vsa* [[[:left :left :left] :a]
+                            [[:left :right :left] :c]]))]
     (cleanup (hd/unbind tree2 trace-b))))
+
+
+
 
 ;; -----------------------------------
 ;;
@@ -829,8 +949,9 @@
   ;; -----------------------
   (cleanup-trace well-known-complete-tree
                  (tree [[:left :left :left] (clj->vsa :a)]
-                         [[:left :right :left] (clj->vsa :b)]
-                         [[:left :right :right] (clj->vsa :c)])
+                       [[:left :right :left] (clj->vsa :b)]
+                       [[:left :right :right]
+                        (clj->vsa :c)])
                  (clj->vsa :b))
   [:left :right :left])
 
@@ -848,8 +969,24 @@
 ;; Unit Tests
 ;; -------------
 (comment
+  (assert
+    (= [(cleanup*
+          (hd/unbind
+            (set (hd/bind (tree-trace [:left :left :left])
+                          (clj->vsa :a))
+                 (hd/bind (tree-trace [:left :left :right])
+                          (clj->vsa :b)))
+            (tree-trace [:left :left :right])))
+        (cleanup*
+          (tree->leave
+            (set (hd/bind (tree-trace [:left :left :left])
+                          (clj->vsa :a))
+                 (hd/bind (tree-trace [:left :left :right])
+                          (clj->vsa :b)))
+            [:left :left :right]))]
+       ['(:b) '(:b)]))
   (let [tree (tree [[:left :left :left] (clj->vsa :a)]
-                     [[:left :right :left] (clj->vsa :b)])
+                   [[:left :right :left] (clj->vsa :b)])
         q (fn [query]
             (cleanup (hd/unbind tree (tree-trace query))))]
     (assert (= [(q [:left :right :left]) (q [:left :left])
@@ -863,7 +1000,7 @@
   ;;
   ;; Alternative Tree
   ;; ----------
-  ;; Use superposition for the trace represenntation
+  ;; Use superposition for the trace representation
   ;;
 
 
@@ -967,12 +1104,12 @@
 (defn stack
   "Return a stack hdv with `items` added.
 
-  Usage pattern for this is limited to 7 items.
+  Usage pattern for this is limited to ~7 items.
   "
   [& items]
   (apply hd/superposition
-         (map-indexed (fn [i item] (hd/permute-n item i))
-                      items)))
+    (map-indexed (fn [i item] (hd/permute-n item i))
+                 items)))
 
 ;; 'peek' silly?
 (defn peek [stack] stack)
@@ -1007,6 +1144,12 @@
 ;; Maybe this is just fine, and the way to scale is with nested stuff and various item memories
 ;;
 
+
+
+
+
+
+
 ;; ----------------------------------------------------------
 
 ;; ---------------------------
@@ -1022,6 +1165,7 @@
 ;;
 ;;
 ;;
+
 
 ;; trunstile:
 
@@ -1045,6 +1189,8 @@
 ;;                            push (p)
 ;;
 ;;
+
+
 
 ;;
 ;; - seed hdvs for states (you need an item memory for that)
@@ -1114,15 +1260,66 @@
   (hd/bind* [source input (hd/permute destination)]))
 
 (defn finite-state-automaton
-  "
-  Returns an hdv representing the transition function
+  "Returns an hdv representing (the transition function of),
   of a finite state automaton.
 
   `transitions` is a seq of tuples of the form
 
   [source input destination]
 
-  See [[transition]].
+
+
+  -----------
+  Example:
+  -----------
+
+
+  trunstile:
+  -------------
+
+
+   states:        { locked, unlocked }
+   input symbols: { token, push }
+
+
+   State diagram:
+   -------
+
+
+                                token (t)
+                          +------------------+
+                          |                  |
+                   +------+--+         +-----v---+
+                   | locked  |         | unlocked|
+              +--->|   (l)   |         |  (u)    +----+
+              |    +-+--^----+         +--+----^-+    |
+              |      |  |                 |    |      |
+              +------+  |                 |    +------+
+     push(p)            +-----------------+        token (t)
+                              push (p)
+
+
+
+  You can create this via something like this:
+
+  (apply
+   finite-state-automaton
+   (map #(map clj->vsa %)
+      [[:locked :token :unlocked]
+       [:locked :push :locked]
+       [:unlocked :push :locked]
+       [:unlocked :token :unlocked]]))
+
+  Usage:
+
+  (-> a
+      (automaton-destination
+       (clj->vsa :unlocked)
+       (clj->vsa :token))
+      cleanup)
+  :unlocked
+
+  See [[transition]], [[automaton-destination]], [[automaton-source]]
   "
   [& transitions]
   (apply hd/superposition (map transition transitions)))
@@ -1136,6 +1333,7 @@
   (hd/permute-inverse
    (hd/unbind automaton (hd/bind state input-symbol))))
 
+;; not sure about api
 (defn automaton-source
   "
 
@@ -1146,6 +1344,8 @@
   [automaton destination source]
   (hd/unbind automaton
              (hd/bind source (hd/permute destination))))
+
+
 
 (comment
   (assert
@@ -1162,6 +1362,20 @@
          (clj->vsa :token))
         cleanup)
     :unlocked))
+
+
+  (-> (apply finite-state-automaton
+             (map #(map clj->vsa %)
+                  ;; symbolic transition
+                  [[:locked :token :unlocked]
+                   [:locked :push :locked]
+                   [:unlocked :push :locked]
+                   [:unlocked :token :unlocked]]))
+      (automaton-destination
+       (clj->vsa :unlocked)
+       (clj->vsa :token))
+      cleanup)
+  :unlocked
 
 
   (let [turnstile (apply finite-state-automaton
@@ -1238,3 +1452,83 @@
                                       (clj->vsa
                                        :unlocked)))))
         :locked))))
+
+(comment
+
+  ;; --------------------
+  ;; Nondeterministic finite-state automaton
+  ;; --------------------
+  ;; - it can be in several states at oncei
+  ;; - there can be several valid transitions from a given current state and input symbol
+  ;; - It can assume a so-called generalized state,
+  ;;   defined as a set of the automaton's states that are simultaneously active
+  ;; - a generalized state corresponds to a hypervector representing the set of the currenlty active states
+  ;; - query the same way, is like executing the automaton in parallel (in superposition)
+  ;; - cleanup will have to search for several nearest neighbors
+  ;;
+
+  ;; automaton in superposition (i.e. just query with states that are in superposition)
+  ;;
+
+  (def water-domain
+    (apply finite-state-automaton
+           (map #(map clj->vsa %)
+                ;; symbolic transition
+                [[:frozen :heat :liquid]
+                 [:liquid :heat :gas]
+                 [:liquid :cool :frozen]
+                 [:gas :cool :liquid]
+                 [:gas :heat :gas]
+                 [:frozen :cool :frozen]])))
+
+  (cleanup*
+   (automaton-destination water-domain
+                          (hd/superposition
+                           (clj->vsa :liquid)
+                           (clj->vsa :frozen))
+                          (clj->vsa :cool)))
+  '(:frozen)
+
+  ;; if your state is the superposition of liquid and frozen
+
+  (cleanup* (automaton-destination water-domain
+                                   (hd/superposition
+                                    (clj->vsa :liquid)
+                                    (clj->vsa :frozen))
+                                   (clj->vsa :heat)))
+  '(:liquid :gas)
+
+  ;; I mean, there is something else that is even crazier (or am I missing something?)
+  ;; that is this:
+
+  (def water-bender-domain
+    (apply finite-state-automaton
+           (map #(map clj->vsa %)
+                [[:frozen :heat :shards]
+                 [:liquid :heat :bubbles]
+                 [:liquid :cool :absolute-zero]])))
+
+  ;; now I have 2 automatons,
+
+  (cleanup* (automaton-destination
+             ;; ... superimpose them
+             (hd/superposition water-domain water-bender-domain)
+             (hd/superposition
+              (clj->vsa :liquid)
+              (clj->vsa :frozen))
+             (clj->vsa :heat)))
+
+  '(:liquid :gas :shards :bubbles)
+
+  ;; and we just run them in parallel, lol
+  ;; 'superposition' truly is the primitive means of combination of 'programming in superposition'
+  ;;
+
+  ;; I have chosen here the state and symbols to be the same though.
+  ;; One would need to share or superimpose the symbols across domains
+  ;; Either
+  ;;
+  ;; 1. have prototype roles for the symbols
+  ;; 2. Find superpositions of symbol roles (perhaps using [[hd/thin]])
+  ;;
+  )

@@ -9,11 +9,30 @@ At the same time, they have drastically reduced memory consumption.
 
 Blog post:
 
-** Code
+** HDV/VSA implementation
 
 Following the paper [[https://www.researchgate.net/publication/299535938_High-Dimensional_Computing_with_Sparse_Vectors][High-Dimensional Computing with Sparse Vectors]] [Laiho,Poikonen,Kanerva,Lehtonen 2020].
 
 [[file:src/bennischwerdtner/hd/binary_sparse_segmented.clj][binary_sparse_segmented.clj]] contains an implementation of 'Binary Sparse Distributed Representation with segments' (naming from [[*2]])
+
+** Datastructures / "Programming in Superposition"
+
+Following [[https://arxiv.org/abs/2106.05268][Vector Symbolic Architectures as a Computing Framework for Emerging Hardware]], I made sokme example
+complex datastructures.
+
+[[file:/src/bennischwerdtner/hd/data.clj]]
+
+
+
+
+*** Fun With Trees
+
+
+
+
+
+
+
 
 ** Examples
 
@@ -50,13 +69,6 @@ The implementation succesfully represents the analogy-reasoning example from Kan
   ;;  => peso
 
 #+end_src
-
-*** 'prototype'
-
-Keys and values are interchangeable in VSA. We might as well call them /prototypes/. We might not need variables at all.
-As analogy, a child might learn the prototype 'mum', which is first used as a symbol for a single person.
-Later, 'mum' could augment, into a symbol representing the =role= mum.
-I.e. you use the mum prototype as key in records.
 
 *** Hyper-If
 
@@ -103,6 +115,13 @@ We can envisage a programming paradigm that models something like a multiverse, 
 
 Similarly, a =multi-symbol= could resolve to either a list of things, or to a thing representing the set of things.
 
+---
+
+Such explorations are found in
+
+[[file:/examples/sequence_processor.clj]], which I consider 'attic', 'on the shelf'.
+
+But making *some* kind of Lisp interpreter gave me at least training with using hdvs.
 
 * Sparse Distributed Memory
 

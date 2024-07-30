@@ -1012,13 +1012,6 @@
   (cleanup*
    (h-eval
     (h-read-code
-     (let [b :hehehe]
-       (release (let [a 200] {:foo #{a b}}) :foo)))))
-  '(200 :hehehe)
-
-  (cleanup*
-   (h-eval
-    (h-read-code
      (release
       {:capital :mxc
        :currency :peso
@@ -1052,8 +1045,6 @@
     (h-read-code
      ((fn [x y z] z) :a :b :dollar))))
   '(:dollar)
-
-
 
 
 
@@ -1265,6 +1256,8 @@
   )
 
 (comment
+  ;; Not further persued atm.
+  ;;
   ;; hyperlisps 'collapse' primitive 'branch'
   ;; looks up e in the associative memory,
   ;; branch function is called called for each known hdv
@@ -1321,23 +1314,6 @@
 
   )
 
-(comment
-  (def spread-butter
-    (h-read-code
-     (lambda
-      (bread butter)
-      {:bread bread
-       :butter butter})))
-
-  (def output (h-eval (clj->vsa
-                       [spread-butter :bread :honey])))
-
-  (cleanup*
-   (hd/unbind output (clj->vsa :butter)))
-  ;; (:honey)
-  )
-
-
 
 
 (comment
@@ -1381,9 +1357,9 @@
   ;; (:c)
 
   (cleanup* (h-eval (h-read-code (release
-                                 (ergo (mix :seed :water)
-                                       :plant)
-                                 (mix :seed :water)))))
+                                  (ergo (mix :seed :water)
+                                        :plant)
+                                  (mix :seed :water)))))
   ;; (:plant)
 
   ;;  - analogy primitives... ???
@@ -1394,26 +1370,3 @@
      (release
       (ergo (mix :seed :water) :plant)
       (mix :seed))))))
-
-
-
-(comment
-
-  (doseq [n (range 500)]
-    (->prototype n))
-
-  (time (let [hsx (pair (->prototype :a) (->prototype :b))]
-          (take 10 (map known (map #(h-nth hsx %) (range))))))
-
-
-
-
-
-
-
-
-
-
-
-
-  )

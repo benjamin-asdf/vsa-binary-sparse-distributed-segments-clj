@@ -77,7 +77,7 @@
    saturn
    ;; moon
    (hd/unbind
-    ;; earh
+    ;; earth
     (hd/bind
      (hdd/clj->vsa* :moon)
      (hd/permute (hdd/clj->vsa* :moon)))

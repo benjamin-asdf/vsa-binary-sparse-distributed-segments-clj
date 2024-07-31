@@ -230,6 +230,10 @@
   ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
    (dtt/rotate a [(* n segment-length)])))
 
+;; (dtt/rotate (range 10) [3])
+;; #tech.v3.tensor<int64>[10]
+;; [7 8 9 0 1 2 3 4 5 6]
+
 (defn permute-inner-n [a n])
 
 (defn permute

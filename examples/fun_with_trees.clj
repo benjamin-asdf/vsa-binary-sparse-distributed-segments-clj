@@ -1,15 +1,8 @@
 (ns fun-with-trees
-  (:require
-   [tech.v3.datatype.functional :as f]
-   [tech.v3.datatype :as dtype]
-   [tech.v3.tensor :as dtt]
-   [tech.v3.datatype.bitmap :as bitmap]
-   [fastmath.random :as fm.rand]
-   [fastmath.core :as fm]
-   [bennischwerdtner.hd.binary-sparse-segmented :as hd]
-   [tech.v3.datatype.unary-pred :as unary-pred]
-   [tech.v3.datatype.argops :as dtype-argops]
-   [bennischwerdtner.hd.data :as hdd]))
+  (:require [tech.v3.datatype.functional :as f]
+            [bennischwerdtner.hd.binary-sparse-segmented :as
+             hd]
+            [bennischwerdtner.hd.data :as hdd]))
 
 ;; ---------
 ;; Basics
@@ -25,7 +18,7 @@
                     [[:left :left :right] :e]])))
 
 ;;
-;; It's essentially a mapping from trace "chain" to leave.
+;; It's essentially a mapping from trace "chains" to leaves.
 ;;
 
 ;; I leave the tree dense
@@ -64,7 +57,7 @@ false
 ;; how does this work?
 
 ;;
-;; In order to reason though programing in superposition,
+;; In order to reason through programing in superposition,
 ;; one trick is to simply not think about the whole, but about a single element.
 ;; The rest comes along for the ride.
 ;;
@@ -101,10 +94,7 @@ false
 ;;
 ;;
 ;;  1. Approach Tree 2 with the leave query:
-
-;; ⊘ means unbind
 ;;
-
 ;;
 ;;
 ;;      +--------------+     +-----+
@@ -120,9 +110,10 @@ false
 ;;
 ;;            trace
 ;;
+;; ⊘ means unbind
+;;
 ;;
 ;;  The resultant hdv is `trace` (or similar to trace, given noise).
-;;
 ;;
 ;;
 ;;
@@ -179,6 +170,14 @@ false
    (hdd/tree-trace* (hdd/clj->vsa* [:left :right :left]))
    (hdd/tree-trace* (hdd/clj->vsa* [:left :left :right]))
    (hdd/tree-trace* (hdd/clj->vsa* [:left :right :right]))))
+
+;; (this is also equivallent to a tree with 'zero unit vector' as leaves)
+(= skeleton-tree
+   (hd/superposition
+    (hd/bind (hdd/tree-trace* (hdd/clj->vsa* [:left :right :left])) (hd/unit-vector-n 0))
+    (hd/bind (hdd/tree-trace* (hdd/clj->vsa* [:left :left :right])) (hd/unit-vector-n 0) )
+    (hd/bind (hdd/tree-trace* (hdd/clj->vsa* [:left :right :right])) (hd/unit-vector-n 0))))
+true
 
 
 (hdd/cleanup* (hd/unbind tree1 skeleton-tree))

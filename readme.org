@@ -1,6 +1,5 @@
 High dimensional computing is a great approach to neuromorphic, neurosymbolic computing.
 
-
 * Sparse Binary Vectors
 
 Brain networks exhibit sparse pattern activity, which is the motivation to explore high dimensional computing with sparse vectors.
@@ -17,21 +16,92 @@ Following the paper [[https://www.researchgate.net/publication/299535938_High-Di
 
 ** Datastructures / "Programming in Superposition"
 
-Following [[https://arxiv.org/abs/2106.05268][Vector Symbolic Architectures as a Computing Framework for Emerging Hardware]], I made sokme example
+Following [[https://arxiv.org/abs/2106.05268][Vector Symbolic Architectures as a Computing Framework for Emerging Hardware]], I made some example
 complex datastructures.
 
 [[file:/src/bennischwerdtner/hd/data.clj]]
 
+Sets, Sequences, Stacks, Graphs, Trees, Finite State Automaton.
 
+Perhaps HDC/VSA's most distinguished aspect is '*programing in superposition*'.
+The HDC/VSA set is basically a bloom filter, but it is not limited to sets. Via VSA we can represent structured data.
 
+(I highly recommend the literature if you are interested, this is not a tutorial, but exploring a software level perspective on excisting work).
 
+Here, finite state automata are represented as a superpostion of transitions.
+One can query with a superposition state, making it a nondeterministic finite-state automaton.
+In effect, running all it's possible transitions in parallel.
+
+#+begin_src clojure
+  ;; --------------------
+  ;; Nondeterministic finite-state automaton
+  ;; --------------------
+  ;; - it can be in several states at once
+  ;; - there can be several valid transitions from a given current state and input symbol
+  ;; - It can assume a so-called generalized state,
+  ;;   defined as a set of the automaton's states that are simultaneously active
+  ;; - a generalized state corresponds to a hypervector representing the set of the currenlty active states
+  ;; - query the same way, is like executing the automaton in parallel (in superposition)
+  ;; - cleanup will have to search for several nearest neighbors
+  ;;
+
+  ;; automaton in superposition (i.e. just query with states that are in superposition)
+  ;;
+
+  (def water-domain
+    (apply
+     finite-state-automaton
+     (clj->vsa*
+      ;;  transition exressed in symbolic domain
+      [[:frozen :heat :liquid] [:liquid :heat :gas]
+       [:liquid :cool :frozen] [:gas :cool :liquid]
+       [:gas :heat :gas] [:frozen :cool :frozen]])))
+
+  (cleanup*
+   (automaton-destination water-domain
+                          (hd/superposition
+                           (clj->vsa :liquid)
+                           (clj->vsa :frozen))
+                          (clj->vsa :cool)))
+  '(:frozen)
+
+  ;; if your state is the superposition of liquid and frozen
+
+  (cleanup* (automaton-destination water-domain
+                                   (hd/superposition
+                                    (clj->vsa :liquid)
+                                    (clj->vsa :frozen))
+                                   (clj->vsa :heat)))
+  '(:liquid :gas)
+
+  ;; I mean, there is something else that is even crazier (or am I missing something?)
+  ;; that is this:
+
+  (def water-bender-domain
+    (apply finite-state-automaton
+           (map #(map clj->vsa %)
+                [[:frozen :heat :shards]
+                 [:liquid :heat :bubbles]
+                 [:liquid :cool :absolute-zero]])))
+
+  ;; now I have 2 automatons,
+
+  (cleanup* (automaton-destination
+             ;; ... superimpose them
+             (hd/superposition water-domain water-bender-domain)
+             (hd/superposition
+              (clj->vsa :liquid)
+              (clj->vsa :frozen))
+             (clj->vsa :heat)))
+
+  '(:liquid :gas :shards :bubbles)
+
+  ;; and we just run them in parallel, lol
+  ;; stuff like that.
+#+end_src
 *** Fun With Trees
 
-
-
-
-
-
+[[file:examples/fun_with_trees.clj]] contains a bit of a walk through of some 'programing in superposition' concepts.
 
 
 ** Examples

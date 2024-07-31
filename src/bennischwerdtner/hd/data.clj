@@ -622,8 +622,10 @@
   ;; saying that :e and :c are connected to :d
   (assert (= (cleanup* (hd/unbind (undirected-graph
                                    (map #(map clj->vsa %)
-                                        [[:a :e] [:a :b]
-                                         [:c :d] [:c :b]
+                                        [[:a :e]
+                                         [:a :b]
+                                         [:c :d]
+                                         [:c :b]
                                          [:d :e]]))
                                   (clj->vsa :d)))
              '(:e :c)))
@@ -1241,10 +1243,10 @@
                                      (clj->vsa :locked))))]
     (cleanup-verbose outcome)))
 
-#_({:k :unlocked
-    :similarity 1.0
-    :v #tech.v3.tensor<int8> [10000]
-    [0 0 0 ... 0 0 0]})
+;; ({:k :unlocked
+;;     :similarity 1.0
+;;     :v #tech.v3.tensor<int8> [10000]
+;;     [0 0 0 ... 0 0 0]})
 
 ;; (heheheh)
 
@@ -1344,8 +1346,6 @@
   [automaton destination source]
   (hd/unbind automaton
              (hd/bind source (hd/permute destination))))
-
-
 
 (comment
   (assert
@@ -1458,7 +1458,7 @@
   ;; --------------------
   ;; Nondeterministic finite-state automaton
   ;; --------------------
-  ;; - it can be in several states at oncei
+  ;; - it can be in several states at once
   ;; - there can be several valid transitions from a given current state and input symbol
   ;; - It can assume a so-called generalized state,
   ;;   defined as a set of the automaton's states that are simultaneously active
@@ -1471,15 +1471,13 @@
   ;;
 
   (def water-domain
-    (apply finite-state-automaton
-           (map #(map clj->vsa %)
-                ;; symbolic transition
-                [[:frozen :heat :liquid]
-                 [:liquid :heat :gas]
-                 [:liquid :cool :frozen]
-                 [:gas :cool :liquid]
-                 [:gas :heat :gas]
-                 [:frozen :cool :frozen]])))
+    (apply
+     finite-state-automaton
+     (clj->vsa*
+      ;;  transition exressed in symbolic domain
+      [[:frozen :heat :liquid] [:liquid :heat :gas]
+       [:liquid :cool :frozen] [:gas :cool :liquid]
+       [:gas :heat :gas] [:frozen :cool :frozen]])))
 
   (cleanup*
    (automaton-destination water-domain
@@ -1523,6 +1521,10 @@
   ;; and we just run them in parallel, lol
   ;; 'superposition' truly is the primitive means of combination of 'programming in superposition'
   ;;
+
+
+
+
 
   ;; I have chosen here the state and symbols to be the same though.
   ;; One would need to share or superimpose the symbols across domains

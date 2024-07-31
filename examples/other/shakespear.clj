@@ -1,3 +1,8 @@
+;;
+;; I put my attention somwhere else for the moment
+;; Kinda shows that you *can* train a k fold sdm to represent seuquences / likelyhoods
+;;
+;;
 (ns shakespear
   (:require
    [clojure.set]

@@ -1,5 +1,6 @@
 ;;
 ;; just experiments
+;; Left it messy.
 ;;
 
 (ns sequence-processor

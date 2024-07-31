@@ -1,17 +1,30 @@
 (ns ambiguity
   (:require
    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
+   [tech.v3.tensor :as dtt]
    [tech.v3.datatype.functional :as f]))
 
 
 ;; ------------------------
-;; Ambiguity primitives
+;; Ambiguity primitives *** WIP ***
 ;; ----------------------
 ;;
 ;; The Cortex is an information mixing machine - V. Braitenberg
 ;;
 ;;
+;; Update:
+;; --------
+;; This preceeds src/bennischwerdtner/hd/data.clj
 ;;
+;; - 'without' can be replaced with set difference
+;; - mix only works well when you work with small amont of seed vectors. (thinnig quickly loses signal strenght)
+;; - you probably want to use the set functions generally instead
+;; - vanishingly, roughly, mostly, impossibly, nothing, everything, non-sense make sense conceptually
+;;   but perhaps I can find an alternative to 'thin' the whole thing.
+;; - something more like alternative set functions, expanding the vacubulary 'union', 'difference' to include mix-states
+;; - would be interesting to program in superposition, utilzing ambiguity
+;;
+
 
 (defn non-sense
   "Returns a fresh random hypervector.
@@ -125,9 +138,6 @@
   "Returns a hypervector representing the 'removal' of the arguments.
 
   Note that this returns a hypervector with negative bits.
-  This will be 'similar' to it's negation.
-  (because we count the non zero bit overlap).
-
   This is different from representing the absence of the arguments.
 
   [[nothing]] is the commplete absence.
@@ -135,7 +145,7 @@
 
   [[hd/similarity]].
   "
-  (comp f/- f/+))
+  (comp dtt/->tensor f/- f/+))
 
 (comment
   (let [a (create)
@@ -143,12 +153,11 @@
         c (hd/bind a b)
         c2 (hd/bind a (impossibly b))]
     [(f/sum c2)
-     ;; strangely 'similar'
      (hd/similarity b (hd/unbind c2 a))
      (= (impossibly b) (hd/unbind c2 a))
      (hd/similarity (mix a (impossibly b)) a)
      (hd/similarity (mix a (impossibly b)) b)])
-  [-20.0 1.0 true 1.0 0.0])
+  [-100.0 0.0 true 0.99 0.0])
 
 (defn without
   "Returns a (potentially super sparse) version of `a` with all of `b` removed.

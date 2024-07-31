@@ -12,7 +12,6 @@
    [tech.v3.datatype.argops :as dtype-argops]
    [bennischwerdtner.hd.data :as hdd]))
 
-
 (def earth
   ;; moon the prototype and moon the filler
   ;; could be [:moon :moon]

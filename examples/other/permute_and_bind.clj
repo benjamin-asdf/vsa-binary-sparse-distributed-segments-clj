@@ -1,3 +1,9 @@
+;; -------------------------------
+;; Old. I updated the permute to be blockwise, as was intendet.
+;; An elementwise permute is not useful, exactly because what is described here.
+;; -------------------------------
+
+
 (require '[bennischwerdtner.hd.binary-sparse-segmented :as hd])
 (require '[tech.v3.tensor :as dtt])
 (require '[tech.v3.datatype.functional :as f])

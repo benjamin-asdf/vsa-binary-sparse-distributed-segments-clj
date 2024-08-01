@@ -55,8 +55,17 @@
 
 (defn clj->vsa*
   [obj]
-  (cond (sequential? obj) (map clj->vsa* obj)
-        :else (clj->vsa obj)))
+  (cond
+    (hd/hv? obj) obj
+    (set? obj) (apply hd/superposition (map clj->vsa* obj))
+    (map? obj) (apply
+                hd/superposition
+                (map (fn [[k v]]
+                       (hd/bind (clj->vsa* k)
+                                (clj->vsa* v)))
+                     obj))
+    (sequential? obj) (map clj->vsa* obj)
+    :else (clj->vsa obj)))
 
 
 
@@ -1261,6 +1270,12 @@
   [[source input destination]]
   (hd/bind* [source input (hd/permute destination)]))
 
+(defn finite-state-automaton-1
+  "Creates a new finite state automaton containing `transitions`
+  Also see [[finite-state-automaton]]"
+  [transitions]
+  (apply hd/superposition (map transition transitions)))
+
 (defn finite-state-automaton
   "Returns an hdv representing (the transition function of),
   of a finite state automaton.
@@ -1323,8 +1338,8 @@
 
   See [[transition]], [[automaton-destination]], [[automaton-source]]
   "
-  [& transitions]
-  (apply hd/superposition (map transition transitions)))
+  ([& transitions]
+   (apply hd/superposition (map transition transitions))))
 
 (defn automaton-destination
   "Returns a noisy hdv that is the result of

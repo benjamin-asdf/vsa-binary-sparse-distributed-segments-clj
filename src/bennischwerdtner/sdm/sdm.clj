@@ -640,6 +640,9 @@
                 item))
       :result (torch/reshape result [N])})))
 
+
+
+
 ;; not sure yet
 ;; these interfaces are just exploratory here
 (defprotocol AddressDecoder
@@ -732,6 +735,39 @@
                         top-k
                         opts)))))
 
+;; Not yet figured out.
+(defn converged-lookup-impl
+  [sdm address
+   {:keys [stop? top-k decoder-threshold max-steps]}]
+  (reduce
+    (fn [{:as acc :keys [address result-xs]} _]
+      (let [next-outcome
+              (lookup sdm address top-k decoder-threshold)
+            {:keys [stop-reason success?]}
+              (stop? acc next-outcome)]
+        (if stop-reason
+          (cond (not success?) (ensure-reduced
+                                 (assoc acc
+                                   :stop-reason stop-reason
+                                   :stop-result
+                                     next-outcome))
+                success?
+                  (ensure-reduced
+                    (assoc acc
+                      :result-xs (conj result-xs
+                                       next-outcome)
+                      :success? true
+                      :stop-reason stop-reason
+                      :result-address (:result next-outcome)
+                      :address (:result next-outcome))))
+          {:address (:result next-outcome)
+           :result-xs (conj result-xs next-outcome)})))
+    {:address address
+     :result-xs [{:input? true :result address}]}
+    ;; taste
+    (range (or max-steps 7))))
+
+
 (defn sparse-sdm
   [{:as opts
     :keys [address-count word-length address-density
@@ -742,20 +778,27 @@
         storage (->sdm-storage-coo opts)]
     (reify
       SDM
-        (write [this address content decoder-threshold]
-          (write-1 storage
-                   (decode-address decoder
-                                   address
-                                   decoder-threshold)
-                   content))
-        (lookup [this address top-k decoder-threshold]
-          (lookup-1 storage
-                    (decode-address decoder
-                                    address
-                                    decoder-threshold)
-                    top-k)))))
+      (write [this address content decoder-threshold]
+        (write-1 storage
+                 (decode-address decoder
+                                 address
+                                 decoder-threshold)
+                 content))
+      (lookup [this address top-k decoder-threshold]
+        (lookup-1 storage
+                  (decode-address decoder
+                                  address
+                                  decoder-threshold)
+                  top-k)))))
+
 
 (def ->sdm sparse-sdm)
+
+
+
+
+
+
 
 ;; --------------------
 ;;  Unit Tests
@@ -795,6 +838,9 @@
                                  (:result
                                   (lookup m d 1 2))))))]]
       (assert r [1.0 1.0]))))
+
+
+
 
 
 ;; -----------------------------------------

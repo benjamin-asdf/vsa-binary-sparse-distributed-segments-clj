@@ -40,7 +40,7 @@
     (or (@m obj) ((swap! m assoc obj (hd/->seed)) obj)))
   (defn cleanup-verbose
     [q]
-    (filter (comp #(< 0.2 %) :similarity)
+    (filter (comp #(<= 0.2 %) :similarity)
             (sort-by :similarity
                      #(compare %2 %1)
                      (into []
@@ -54,7 +54,7 @@
   (defn cleanup [q] (first (cleanup* q))))
 
 (defn clj->vsa*
-  [obj]
+ [obj]
   (cond
     (hd/hv? obj) obj
     (set? obj) (apply hd/superposition (map clj->vsa* obj))
@@ -89,7 +89,7 @@
 
 (defn union "See [[set]]." [& sets] (apply hd/superposition sets))
 
-(defn intersection
+(defn intersection-1
   "Return a hdv that represents the *intersection* between `sets`.
 
   `threshold`: The threshold for which an element counts as contributing
@@ -104,11 +104,29 @@
 
   If threshold is 0, 'everything' (all ones) would be returned.
   "
-  ([sets] (intersection (count sets) sets))
+  ([sets] (intersection-1 (count sets) sets))
   ([threshold sets]
    (dtt/->tensor (f/<= threshold (apply union sets))
                  :datatype
                  :int8)))
+
+(defn intersection
+  "Return a hdv that represents the *intersection* between `sets`.
+
+  `threshold`: The threshold for which an element counts as contributing
+  to the intersection.
+
+  If threshold is 1, then even a single bit contribution counts towards the intersection.
+  If ommitted, this uses the count of `sets`, this works well when the input sets are normalized,
+  (for instance by [[hd/thin]]).
+  If all elements in sets are roughly seed vectors, where all contributing counters are 1.
+
+  In other words, if `sets` are made from multisets, then a higher threshold might be needed.
+
+  If threshold is 0, 'everything' (all ones) would be returned.
+
+  "
+  ([& sets] (intersection-1 sets)))
 
 (defn difference
   "Returns the hdv reprenting the difference between `a` and `sets`.
@@ -135,16 +153,16 @@
 ;; ---------------
 (comment
   (do (assert (= (hd/similarity (clj->vsa :b)
-                                (intersection
-                                  2
-                                  [(f/+ (clj->vsa :a)
-                                        (clj->vsa :b)
-                                        (clj->vsa :c))
-                                   (f/+ (clj->vsa :b)
-                                        (clj->vsa 20))]))
+                                (intersection-1
+                                 2
+                                 [(f/+ (clj->vsa :a)
+                                       (clj->vsa :b)
+                                       (clj->vsa :c))
+                                  (f/+ (clj->vsa :b)
+                                       (clj->vsa 20))]))
                  1.0))
       (assert (= (hd/similarity (clj->vsa :a)
-                                (intersection
+                                (intersection-1
                                   1
                                   [(f/+ (clj->vsa :a)
                                         (clj->vsa :b)
@@ -153,7 +171,7 @@
                                         (clj->vsa 20))]))
                  1.0))
       (assert (< (hd/similarity (clj->vsa :c)
-                                (intersection
+                                (intersection-1
                                   2
                                   [(f/+ (clj->vsa :a)
                                         (clj->vsa :b)
@@ -162,7 +180,7 @@
                                         (clj->vsa 20))]))
                  0.1)
               (< (hd/similarity (clj->vsa :foo)
-                                (intersection
+                                (intersection-1
                                   1
                                   [(f/+ (clj->vsa :a)
                                         (clj->vsa :b)
@@ -171,7 +189,7 @@
                                         (clj->vsa 20))]))
                  0.1))
       (assert (= (hd/similarity (clj->vsa :b)
-                                (intersection
+                                (intersection-1
                                   [(f/+ (clj->vsa :a)
                                         (clj->vsa :b)
                                         (clj->vsa :c))
@@ -179,7 +197,7 @@
                                         (clj->vsa 20))]))
                  1.0))
       (assert (< (hd/similarity (clj->vsa :c)
-                                (intersection
+                                (intersection-1
                                   [(f/+ (clj->vsa :a)
                                         (clj->vsa :b)
                                         (clj->vsa :c))
@@ -1358,9 +1376,11 @@
   Technically, this is because bind is commutative.
 
   Source and input symbol contribute in the same way."
-  [automaton destination source]
+  [automaton source destination]
   (hd/unbind automaton
              (hd/bind source (hd/permute destination))))
+
+
 
 (comment
   (assert
@@ -1423,8 +1443,8 @@
                                              (clj->vsa
                                               :unlocked)))))
                (cleanup (automaton-source turnstile
-                                          (clj->vsa :unlocked)
-                                          (clj->vsa :locked)))
+                                          (clj->vsa :locked)
+                                          (clj->vsa :unlocked)))
                :token)))
 
 
@@ -1458,9 +1478,10 @@
                                [:unlocked :push :locked]
                                [:unlocked :token :unlocked]]))]
     (assert
-     (= (cleanup (automaton-source turnstile
-                                   (clj->vsa :unlocked)
-                                   (clj->vsa :token)))
+     (= (cleanup
+         (automaton-source turnstile
+                           (clj->vsa :token)
+                           (clj->vsa :unlocked)))
         (cleanup (hd/unbind turnstile
                             (hd/bind (clj->vsa :token)
                                      (hd/permute

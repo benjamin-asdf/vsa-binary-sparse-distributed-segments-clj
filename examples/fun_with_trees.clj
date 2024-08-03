@@ -28,7 +28,6 @@ false
 ;; You can [[hd/thin]] but you trade accuracy fast.
 
 
-
 ;; -----------
 ;; 2. Query a leave given a trace:
 
@@ -527,7 +526,7 @@ true
 ;; For a tree, this means that only the trace-leave pairs that are shared will be part of the intersection:
 
 (let [intersect-tree
-      (hdd/intersection
+      (hdd/intersection-1
        [(apply hdd/tree*
                (hdd/clj->vsa* [[[:left :left :left] :a]
                                [[:left :left :right] :b]]))
@@ -547,30 +546,50 @@ true
 ;;
 
 
+(let [intersect-tree
+      (hdd/intersection
+       (apply hdd/tree*
+              (hdd/clj->vsa* [[[:left :left :left] :a]
+                              [[:left :left :right] :b]]))
+       (apply hdd/tree*
+              (hdd/clj->vsa*
+               ;; note, this is the shared
+               ;; trace-leave pair
+               [[[:left :left :left] :a]
+                [[:left :right :right] :x]])))]
+  [
+   ;; a?
+   (hdd/cleanup (hd/unbind intersect-tree (hdd/tree-trace* (hdd/clj->vsa* [:left :left :left]))))
+   ;; b?
+   (hdd/cleanup (hd/unbind intersect-tree (hdd/tree-trace* (hdd/clj->vsa* [:left :left :right]))))])
+[:a nil]
+
+
+
 ;; Difference works structurally
 ;; -------------------
 
 (let [difference-tree
-        (hdd/difference
-         (apply hdd/tree*
-                (hdd/clj->vsa* [[[:left :left :left] :a]
-                                [[:left :left :right] :b]]))
-         (apply hdd/tree*
-                (hdd/clj->vsa*
-                 ;; note, this is the shared
-                 ;; trace-leave pair
-                 [[[:left :left :left] :a]
-                  [[:left :right :right] :x]])))]
-  [;; a?
+      (hdd/difference
+       (apply hdd/tree*
+              (hdd/clj->vsa* [[[:left :left :left] :a]
+                              [[:left :left :right] :b]]))
+       (apply hdd/tree*
+              (hdd/clj->vsa*
+               ;; note, this is the shared
+               ;; trace-leave pair
+               [[[:left :left :left] :a]
+                [[:left :right :right] :x]])))]
+  [ ;; a?
    (hdd/cleanup (hd/unbind difference-tree
                            (hdd/tree-trace* (hdd/clj->vsa*
-                                              [:left :left
-                                               :left]))))
+                                             [:left :left
+                                              :left]))))
    ;; b?
    (hdd/cleanup (hd/unbind difference-tree
                            (hdd/tree-trace* (hdd/clj->vsa*
-                                              [:left :left
-                                               :right]))))])
+                                             [:left :left
+                                              :right]))))])
 [nil :b]
 ;; flipped with respect to above.
 ;; This time :b was leftover
@@ -586,7 +605,7 @@ true
 (f/mean
  (for [n (range 100)]
    (f/sum
-    (hdd/intersection
+    (hdd/intersection-1
      [tree1 (hd/->hv)]))))
 0.16
 

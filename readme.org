@@ -4,7 +4,7 @@ High dimensional computing is a great approach to neuromorphic, neurosymbolic co
 
 Brain networks exhibit sparse pattern activity, which is the motivation to explore high dimensional computing with sparse vectors.
 Sparse VSA architectures have been show to have competitive capacity and desirable HDC properties.[fn:1]
-At the same time, they have drastically reduced memory consumption.
+At the same time, they can be represented with drastically less memory consumption.
 
 Blog post:
 
@@ -32,6 +32,84 @@ Here, finite state automata are represented as a superpostion of transitions.
 One can query with a superposition state, making it a nondeterministic finite-state automaton.
 In effect, running all it's possible transitions in parallel.
 
+[[file:./examples][examples]] contains examples and expirements.
+
+*** What Is The Dollar In Mexico?
+
+The implementation succesfully represents the analogy-reasoning example from Kanerva ([[*3]]):
+
+#+begin_src clojure
+
+    (def mexico-record
+      (h/thin
+       (h/bundle
+        (h/bind (symbol->hv :capital) (symbol->hv 'mxc))
+        (h/bind (symbol->hv :currency) (symbol->hv 'peso))
+        (h/bind (symbol->hv :name) (symbol->hv 'mex)))))
+
+    (def usa-record
+      (h/thin (h/bundle (h/bind (symbol->hv :capital)
+                                (symbol->hv 'wdc))
+                        (h/bind (symbol->hv :currency)
+                                (symbol->hv 'dollar))
+                        (h/bind (symbol->hv :name)
+                                (symbol->hv 'usa)))))
+
+
+    (let [result
+          (h/unbind mexico-record
+                    ;; this represents the query
+                    (h/unbind usa-record (symbol->hv 'dollar)))]
+
+      (cleanup-lookup-value result))
+  ;;  => peso
+
+#+end_src
+
+*** What Is The Bread For Lava?
+
+[[file:examples/what_is_the_bread_for_lava.clj]]
+
+*** What Is the Moon of Saturn?
+
+[[file:examples/what_is_the_moon_of_saturn.clj]]
+
+#+begin_src clojure
+  (def earth
+    (hdd/->directed-edge (hdd/clj->vsa* [:moon :luna])))
+
+  (def saturn
+    (hdd/directed-graph (hdd/clj->vsa*
+                         [[:adjective :saturnian]
+                          [:adjective :cronian]
+                          [:adjective :kronian]
+                          [:rings true]
+                          [:moon :mimas]
+                          [:moon :enceladus]
+                          [:moon :tethys]
+                          [:moon :dione]
+                          [:moon :rhea]
+                          [:moon :titan]
+                          [:moon :iapetus]])))
+
+  ;; let's say you know luna and you want to know what that is in saturn domain
+
+  (hdd/cleanup*
+   (hdd/edge->destination
+    saturn
+    ;; ~ :moon
+    (hdd/edge->source earth (hdd/clj->vsa :luna))))
+  '(:rhea :iapetus :tethys :dione :mimas :titan :enceladus)
+
+  ;; 0. "What is the dollar in mexico?" kind of things work in general.
+  ;; 1. The moon of saturn is a superposition 7 things
+  ;; 2. Saturn is a composite datastructure, yet we pretend it's one element 'edge->destination'
+  ;;    works on an edge element, and the superposition of elements
+
+#+end_src
+
+*** Nondeterministic Finite-State Automaton
+
 #+begin_src clojure
   ;; --------------------
   ;; Nondeterministic finite-state automaton
@@ -52,10 +130,12 @@ In effect, running all it's possible transitions in parallel.
     (apply
      finite-state-automaton
      (clj->vsa*
-      ;;  transition exressed in symbolic domain
-      [[:frozen :heat :liquid] [:liquid :heat :gas]
-       [:liquid :cool :frozen] [:gas :cool :liquid]
-       [:gas :heat :gas] [:frozen :cool :frozen]])))
+      [[:frozen :heat :liquid]
+       [:liquid :heat :gas]
+       [:liquid :cool :frozen]
+       [:gas :cool :liquid]
+       [:gas :heat :gas]
+       [:frozen :cool :frozen]])))
 
   (cleanup*
    (automaton-destination water-domain
@@ -99,48 +179,17 @@ In effect, running all it's possible transitions in parallel.
   ;; and we just run them in parallel, lol
   ;; stuff like that.
 #+end_src
+
+The point I was missing was that superimposing 2 automatons (union) is equivalent to making 1 large one in the first place.
+It is somewhat suggestive though, the primitives of a hyper interpreter might have this 'mixing' at the core.
+
 *** Fun With Trees
 
 [[file:examples/fun_with_trees.clj]] contains a bit of a walk through of some 'programing in superposition' concepts.
 
-
-** Examples
-
-[[file:./examples][examples]] contains examples and expirements.
-
-*** What Is The Dollar In Mexico?
-
-The implementation succesfully represents the analogy-reasoning example from Kanerva ([[*3]]):
-
-#+begin_src clojure
-
-    (def mexico-record
-      (h/thin
-       (h/bundle
-        (h/bind (symbol->hv :capital) (symbol->hv 'mxc))
-        (h/bind (symbol->hv :currency) (symbol->hv 'peso))
-        (h/bind (symbol->hv :name) (symbol->hv 'mex)))))
-
-    (def usa-record
-      (h/thin (h/bundle (h/bind (symbol->hv :capital)
-                                (symbol->hv 'wdc))
-                        (h/bind (symbol->hv :currency)
-                                (symbol->hv 'dollar))
-                        (h/bind (symbol->hv :name)
-                                (symbol->hv 'usa)))))
-
-
-    (let [result
-          (h/unbind mexico-record
-                    ;; this represents the query
-                    (h/unbind usa-record (symbol->hv 'dollar)))]
-
-      (cleanup-lookup-value result))
-  ;;  => peso
-
-#+end_src
-
 *** Hyper-If
+
+(this was a very early idea)
 
 [[file:./examples/hyper_if.clj]]
 

@@ -19,38 +19,264 @@
 ;; Pretend for a moment you have a cognitive system that already established certain 'samenesses'
 ;;
 
-
 (def liquid (hdd/clj->vsa :liquid))
 ;; forgot about the honey
-(def honey (hd/thin (hd/superposition liquid (hdd/clj->vsa :honey))))
+;; (def honey (hd/thin (hd/superposition liquid (hdd/clj->vsa :honey))))
 (def butter (hd/thin (hd/superposition liquid (hdd/clj->vsa :butter))))
 (def lava (hd/thin (hd/superposition liquid (hdd/clj->vsa :lava))))
 
 
 ;; -------------------------------------------------------
-;; model as asssoicative map
+;; Model stuff with finite state automatons
 ;;
-;; This is almost the same as dollar in mexico.
-;; But now we we use the intersection as query.
-;; This is programing in superposition and a little bit 'analogical', leveraging the intersection.
+;; Say that the outcome of spread is a surface filled with *something*
+;;
 ;;
 
 (def bread-domain
-  (hdd/clj->vsa* {:ground :bread :surface butter}))
+  (hdd/finite-state-automaton-1
+   (hdd/clj->vsa* [[:bread :spread {:surface butter}]
+                   [:bread :spread {:surface :vegan-spread}]
+                   [:bread :crumble {:crumps :bread}]
+                   [:bread :forget {:bread :molded}]])))
 
-(def rocks-domain
-  (hdd/clj->vsa* {:ground :rocks :surface lava}))
+(def lava-domain
+  (hdd/finite-state-automaton-1
+    (hdd/clj->vsa* [[:rocks :spread {:surface lava}]
+                    [:lava :freeze :rocks]
+                    [:vulcano :erupt {:spew lava}]
+                    [:rocks :forget {:rocks :ancient}]])))
 
+;; what is the bread for lava?
+
+;; Get a mix:
 (hdd/cleanup*
- (hd/unbind
-  ;; ~ {:ground :rocks}
-  (hd/unbind rocks-domain
-             ;; intersection
-             ;; ~ {:surface liquid}
-             (hdd/intersection [bread-domain
-                                rocks-domain]))
-  (hdd/clj->vsa* :ground)))
+ (hdd/automaton-source
+  (hd/superposition bread-domain lava-domain)
+  (hdd/clj->vsa* :spread)
+  (hdd/clj->vsa* {:surface lava})))
+'(:rocks :bread)
+
+;; When you know that you aren't looking for bread:
+(hdd/cleanup*
+ (hdd/automaton-source
+  lava-domain
+  (hdd/clj->vsa* :spread)
+  (hdd/clj->vsa* {:surface lava})))
 '(:rocks)
+;; (kinda shows that the :spread domain in truth is doing the lifting)
+
+
+;; Or remove it from the outcome
+(hdd/cleanup*
+ (hdd/difference
+  (hdd/automaton-source
+   (hd/superposition bread-domain
+                     lava-domain)
+   (hdd/clj->vsa* :spread)
+   (hdd/clj->vsa* {:surface lava}))
+  (hdd/clj->vsa* :bread)))
+'(:rocks)
+
+
+;;
+;; in some ways you expect something that is now 'superimposed with bread'?
+;; Perhaps it is exactly this superposition that is the early making of a personal 'inside joke'
+;; The concept that bread and lava now coexist?
+;; I don't know.
+;;
+
+;; -----------
+;; Admittedly, :spread is doing a lot of work here.
+;;
+;; -----------
+
+;; ----------------------------------
+;;
+
+(=
+ (hdd/finite-state-automaton-1
+  (hdd/clj->vsa* [[:bread :spread {:surface butter}]]))
+ ;; -------------------------------
+ ;; expands to
+ (hd/bind
+  (hd/bind (hdd/clj->vsa* :bread) (hdd/clj->vsa* :spread))
+  (hd/permute (hd/bind (hdd/clj->vsa* :surface) butter))))
+true
+
+(=
+ (hdd/automaton-source
+  (hd/bind (hd/bind (hdd/clj->vsa* :bread)
+                    (hdd/clj->vsa* :spread))
+           (hd/permute (hd/bind (hdd/clj->vsa* :surface)
+                                butter)))
+  (hdd/clj->vsa* :spread)
+  (hd/bind (hdd/clj->vsa* :surface) butter))
+ (hd/unbind
+  (hd/bind (hd/bind (hdd/clj->vsa* :bread)
+                    (hdd/clj->vsa* :spread))
+           (hd/permute (hd/bind (hdd/clj->vsa* :surface)
+                                butter)))
+  (hd/bind (hdd/clj->vsa* :spread)
+           (hd/permute (hd/bind (hdd/clj->vsa* :surface)
+                                butter))))
+ ;; ---------------------------
+ ;; The user can work this out for themselves, it becomes:
+ (hdd/clj->vsa* :bread))
+true
+
+
+;; ...
+;; if you put a superposition instead of bread:
+
+(= (hdd/automaton-source
+    ;; Flipping the args here for the subtle reason
+    ;; that dense hdvs don't actually have a
+    ;; commutative bind. (The
+    ;; bit count of the second arg is preserved)
+    ;; This affects the outcome of '='
+    (hd/bind (hd/permute (hd/bind (hdd/clj->vsa* :surface)
+                                  butter))
+             (hd/bind (hdd/clj->vsa* :spread)
+                      (hdd/clj->vsa* #{:bread :rocks})))
+    (hdd/clj->vsa* :spread)
+    (hd/bind (hdd/clj->vsa* :surface) butter))
+   ;; --------------------------------------------------
+   ;; expanded:
+   (hd/unbind
+    (hd/bind (hd/permute (hd/bind (hdd/clj->vsa* :surface)
+                                  butter))
+             (hd/bind (hdd/clj->vsa* :spread)
+                      (hdd/clj->vsa* #{:bread :rocks})))
+    (hd/bind (hdd/clj->vsa* :spread)
+             (hd/permute (hd/bind (hdd/clj->vsa* :surface)
+                                  butter))))
+   ;; --------------------------------------------------
+   ;; ... then a superposition comes out here:
+   ;;
+   (hdd/clj->vsa* #{:bread :rocks}))
+true
+
+;; ----------------------------------------
+;;
+
+;;
+;; (⊕ bread-domain lava-domain )
+;;
+;; I use #{} interchangibly with ⊕
+;;
+;;
+;; comes down essentially to
+;;
+;;  #{:bread :rocks} ⊙ :spread ⊙ ~ p(:surface ⊙ :liquid)
+;;
+;;
+;; Then querying with as destination {:surface lava} and :spread as input token
+;;
+;;
+;; a = #{:bread :rocks} ⊙ :spread ⊙ ~ p(:surface ⊙ :liquid)
+;;
+;; a ⊘ ( :spread ⊙ p( ~ {:suface :liquid} ) )
+;;
+;; -> #{:bread :rocks}
+;;
+
+;; ------------------------------------------------
+
+;; more mechanism:
+
+(hdd/cleanup-verbose
+ (hd/unbind
+  (hdd/automaton-destination
+   ;; you see that such an automaton supports 2
+   ;; paths towards ~ {:surface liquid}
+   (hdd/finite-state-automaton-1
+    (hdd/clj->vsa*
+     [[:rocks :spread {:surface #{:butter :liquid}}]
+      [:bread :spread {:surface #{:lava :liquid}}]]))
+   (hdd/clj->vsa* :spread)
+   (hdd/clj->vsa* #{:rocks :bread}))
+  (hdd/clj->vsa* :surface)))
+
+(hdd/cleanup-verbose
+ (hdd/automaton-source
+  ;; you see that such an automaton supports 2
+  ;; paths towards ~ {:surface liquid}
+  (hdd/finite-state-automaton-1
+   (hdd/clj->vsa*
+    [[:rocks :spread {:surface butter}]
+     [:bread :spread {:surface lava}]]))
+  (hdd/clj->vsa* :spread)
+  (hdd/clj->vsa* {:surface liquid})))
+
+;; ({:k :bread
+;;   :similarity 0.5
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]}
+;;  {:k :rocks
+;;   :similarity 0.4
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]})
+
+
+(hdd/cleanup-verbose
+ (hdd/automaton-source
+  ;; you see that such an automaton supports 2
+  ;; paths towards ~ {:surface liquid}
+  (hdd/finite-state-automaton-1
+   (hdd/clj->vsa*
+    [[:rocks :spread {:surface butter}]
+     [:bread :spread {:surface lava}]]))
+  (hdd/clj->vsa* :spread)
+  (hdd/clj->vsa* {:surface lava})))
+
+;; ({:k :bread
+;;   :similarity 1.0
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]}
+;;  {:k :rocks
+;;   :similarity 0.25
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]})
+
+;; ({:k :bread
+;;   :similarity 1.0
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]}
+;;  {:k :rocks
+;;   :similarity 0.25
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]})
+
+(hdd/cleanup-verbose
+ (hdd/automaton-source
+  ;; you see that such an automaton supports 2
+  ;; paths towards ~ {:surface liquid}
+  (hd/superposition
+   (hdd/finite-state-automaton-1
+    (hdd/clj->vsa*
+     [[:rocks :spread {:surface butter}]]))
+   (hdd/finite-state-automaton-1
+    (hdd/clj->vsa*
+     [[:bread :spread {:surface lava}]])))
+  (hdd/clj->vsa* :spread)
+  (hdd/clj->vsa* {:surface lava})))
+
+;; ({:k :bread
+;;   :similarity 1.0
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]}
+;;  {:k :rocks
+;;   :similarity 0.25
+;;   :v #tech.v3.tensor<int8> [10000]
+;;   [0 0 0 ... 0 0 0]})
+
+
+;; -------------------------------------------------------------
+
+
+
+
 
 ;; to show that you can juggle these things a little,
 ;; let's query the union:
@@ -61,7 +287,7 @@
   (hd/unbind (hdd/union rocks-domain bread-domain)
              ;; intersection
              ;; ~ {:surface liquid}
-             (hdd/intersection [bread-domain
+             (hdd/intersection-1 [bread-domain
                                 rocks-domain]))
   (hdd/clj->vsa* :ground)))
 '(:bread :rocks)
@@ -73,7 +299,7 @@
   (hd/unbind (hdd/difference rocks-domain bread-domain)
              ;; intersection
              ;; ~ {:surface liquid}
-             (hdd/intersection [bread-domain
+             (hdd/intersectiuon [bread-domain
                                 rocks-domain]))
   (hdd/clj->vsa* :ground)))
 '(:rocks)
@@ -84,12 +310,78 @@
   (hd/unbind (hdd/difference bread-domain rocks-domain)
              ;; intersection
              ;; ~ {:surface liquid}
-             (hdd/intersection [bread-domain
+             (hdd/intersection-1 [bread-domain
                                 rocks-domain]))
   (hdd/clj->vsa* :ground)))
 '(:bread)
 
 
+;; ---------------------------------
+;; Showing that this really has to do with 'liquid':
+;;
+
+(def tofifee-domain
+  (hdd/clj->vsa* {:ground :caramel :surface :chocolate}))
+
+(hdd/cleanup*
+ (hd/unbind
+  ;; ~ nothing
+  (hd/unbind rocks-domain
+             ;; intersection
+             ;; ~ nothing !
+             (hdd/intersection-1 [bread-domain tofifee-domain]))
+  (hdd/clj->vsa* :ground)))
+
+(f/sum (hdd/intersection-1 [bread-domain tofifee-domain]))
+
+(= (hdd/clj->vsa* :foo) (hd/unbind (hdd/clj->vsa* :foo) (hd/->empty)))
+
+
+
+;; ------------------
+;; Partial mathematical mechanism:
+;;
+
+(comment
+  (f/sum (hdd/intersection-1 [bread-domain tofifee-domain]))
+  0.0
+  ;; 5 bits is what we needed
+  (f/sum (hdd/intersection-1 [bread-domain rocks-domain]))
+  5.0
+  ;; (this exact outcome is non deterministic, depends
+  ;; on the seed vectors)
+  ;; since segment-count = 20, and both
+  ;; [(⊕ :lava liquid)] ~
+  ;; [(⊕ :butter liquid)] ~  0.5 similarity to liquid
+  ;; (both have ~10 liquid bits)
+  ;; -------------------------------------------------
+  ;; [ . ] means normalizing, here that is [[hd/thin]]
+  ;; -------------------------------------------------
+  ;; the count of overlap between butter and lava is
+  ;; roughly 5:
+  ;; -------------------------------------------------
+  ;; O((∩ butter lava)) ~= 5
+  ;;
+  ;;
+  ;; ... and those 5 bits happen to be mapped to the
+  ;; :surface domain so to say.
+  ;;
+  (hd/similarity (hdd/clj->vsa* {:surface liquid})
+                 (hdd/intersection-1 [bread-domain
+                                    rocks-domain]))
+  ;; similarity > 0.1 usually means 'similar' here
+  0.25
+  ;; It happens to be the case that all 5 bits that
+  ;; make up the similarity
+  ;; are also part of {:surface liquid}
+  (f/sum (hdd/intersection-1
+          [(hdd/clj->vsa* {:surface liquid})
+           (hdd/intersection-1 [bread-domain
+                              rocks-domain])]))
+  5.0)
+
+
+;; ------------------
 
 
 
@@ -269,7 +561,7 @@
 (hdd/cleanup*
  (recover item-memory
           (hdd/automaton-source
-           (hdd/intersection [bread-domain
+           (hdd/intersection-1 [bread-domain
                               rocks-domain])
            ;; note the lack of bread
            (hdd/clj->vsa* {:surface lava})
@@ -280,7 +572,7 @@
 (hdd/cleanup*
  (recover item-memory
           (hdd/automaton-source
-           (hdd/intersection [bread-domain
+           (hdd/intersection-1 [bread-domain
                               rocks-domain])
            ;; note the lack of bread
            (hdd/clj->vsa* {:surface butter})
@@ -316,7 +608,7 @@
  (recover
   item-memory
   (hdd/automaton-source
-   (hdd/intersection [rocks-domain bread-domain])
+   (hdd/intersection-1 [rocks-domain bread-domain])
    (hdd/clj->vsa* {:thin? true})
    (hdd/clj->vsa* {:scrub-off butter}))))
 '(:bread :rocks)
@@ -325,7 +617,7 @@
  (recover
   item-memory
   (hdd/automaton-source
-   (hdd/intersection [rocks-domain bread-domain])
+   (hdd/intersection-1 [rocks-domain bread-domain])
    (hdd/clj->vsa* {:thin? true})
    (hdd/clj->vsa* {:scrub-off #{butter lava}}))))
 '(:bread :rocks)
@@ -373,7 +665,7 @@
     item-memory
     (hdd/automaton-source
      ;; with intersection instead
-     (hdd/intersection [rocks-domain bread-domain])
+     (hdd/intersection-1 [rocks-domain bread-domain])
      (hdd/clj->vsa* {:thin? true})
      (hdd/clj->vsa* {:scrub-off (hd/->seed)})))
    hdd/cleanup*))

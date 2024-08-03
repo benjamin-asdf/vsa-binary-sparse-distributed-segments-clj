@@ -13,8 +13,6 @@
    [bennischwerdtner.hd.data :as hdd]))
 
 (def earth
-  ;; moon the prototype and moon the filler
-  ;; could be [:moon :moon]
   (hdd/->directed-edge (hdd/clj->vsa* [:moon :luna])))
 
 (def saturn

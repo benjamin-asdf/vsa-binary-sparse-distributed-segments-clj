@@ -66,12 +66,24 @@
   ;; 20
   (alter-var-root #'default-opts
                   (constantly
-                    (let [dimensions (long 1e4)
-                          segment-count 20]
-                      {:bsdc-seg/N dimensions
-                       :bsdc-seg/segment-count segment-count
-                       :bsdc-seg/segment-length
-                       (/ dimensions segment-count)}))))
+                   (let [dimensions (long 1e4)
+                         segment-count 20]
+                     {:bsdc-seg/N dimensions
+                      :bsdc-seg/segment-count segment-count
+                      :bsdc-seg/segment-length
+                      (/ dimensions segment-count)})))
+
+  #_(alter-var-root #'default-opts
+                  (constantly
+                   (let [dimensions (long 1e5)
+                         segment-count
+                         1000
+                         ;; (Math/sqrt (long 1e5))
+                         ]
+                     {:bsdc-seg/N dimensions
+                      :bsdc-seg/segment-count segment-count
+                      :bsdc-seg/segment-length
+                      (/ dimensions segment-count)}))))
 
 
 (defn ->empty
@@ -141,6 +153,17 @@
   [1 0]
   (hv->indices (->hv)))
 
+
+;; BSC Fully Distributed Representation Kanerva 1997
+;; Binding and Normalization of Binary Sparse Distributed Representations by Context-Dependent Thinning
+;; Rachkovskij, Kussul
+;; -> it is interesting that they have a bind version that preserves similarity of the bound vectors.
+;; This would be another thing I want to try out next.
+;;
+
+
+
+
 (defn ->hv
   "
   Returns a fresh, random hypervector - the element of VSA.
@@ -161,6 +184,8 @@
   Each segment has 1 (random) bit non-zero.
 
   In order to make it sparse, we only set 1 bit per segment.
+
+  This is also called a Sparse Block-Code.
 
   For operation, see:
   [[thin]], [[maximally-sparse?]], [[similarity]], [[bundle]], [[bind]], [[unbind]]
@@ -404,6 +429,11 @@
 ;; lit 2: http://www.arxiv.org/abs/2001.11797
 ;;
 ;; (lit.org in this repository).
+;;
+;;
+;; For implemmentation of this on spiking neuromorphic hardware:
+;; https://dl.acm.org/doi/fullHtml/10.1145/3546790.3546820
+;;
 (defn bind
   "
   Returns a new vector `c` that represents the binding of `a` and `b`.
@@ -539,18 +569,18 @@
   ([a b alpha
     {:bsdc-seg/keys [N segment-count segment-length]}]
    (let [smallest-index-of-max-per-segment
-         (-> a
-             (dtt/reshape [segment-count segment-length])
-             (dtt/reduce-axis (fn [segment]
-                                ;; the first max value
-                                ;; index of the
-                                ;; segment (as)
-                                (dtype-argops/index-of
-                                 segment
-                                 (f/reduce-max
-                                  segment)))))
+           (-> a
+               (dtt/reshape [segment-count segment-length])
+               (dtt/reduce-axis (fn [segment]
+                                  ;; the first max value
+                                  ;; index of the
+                                  ;; segment (as)
+                                  (dtype-argops/index-of
+                                    segment
+                                    (f/reduce-max
+                                      segment)))))
          segments-shift
-         (f/* alpha smallest-index-of-max-per-segment)
+           (f/* alpha smallest-index-of-max-per-segment)
          segments-shift (volatile! segments-shift)
          next-shift! (fn []
                        (let [shift (first @segments-shift)
@@ -574,8 +604,7 @@
   This is slightly different from [[bind]] for non maximally sparse vectors,
   it returns a thinned result, where [[bind]] returns a rotated result.
 
-  Arguably, this is the cleaner implementation. And [[bind]] might be scrabbed
-  in favor of it.
+  Arguably, this is a much simpler implementation.
 
   Zhonghao Yang 2023 (see lit.org)
   "
@@ -584,13 +613,14 @@
    (indices->hv (dtype/emap
                   #(fm/mod % segment-length)
                   :int8
-                  (-> (dtt/reduce-axis
-                        (map #(dtt/reshape %
-                                           [segment-count
-                                            segment-length])
-                          hdvs)
-                        dtype-argops/argmax)
+                  (-> (dtt/reshape hdvs
+                                   [(count hdvs)
+                                    segment-count
+                                    segment-length])
+                      (dtt/reduce-axis dtype-argops/argmax)
                       (dtt/reduce-axis f/sum 0))))))
+
+
 (comment
   (doseq [_ (range 100)]
     (let [a (->hv)
@@ -617,6 +647,25 @@
   "
   ;; I swap this here so the mapping is left
   [a b] (bind b a -1))
+
+
+;;
+;;
+;; c
+;;
+;; (bind a b -1)
+
+(def a (bundle (->seed) (->seed)))
+(def b (->seed))
+(def c (bind b a))
+
+(f/sum (bind b c -1))
+(similarity a (bind b c -1))
+(similarity a (bind b c -1))
+(similarity b (bind a c -1))
+
+
+
 
 
 (defn unit-vector-n

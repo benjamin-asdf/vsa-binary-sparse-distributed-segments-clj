@@ -1,3 +1,361 @@
+;; ---------------------------------
+;; Showing that this really has to do with 'liquid':
+;;
+;; this actually ends up unbing with 'nothing', which is identiy
+;;
+
+(def tofifee-domain
+  (hdd/clj->vsa* {:ground :caramel :surface :chocolate}))
+
+(hdd/cleanup*
+ (hd/unbind
+  ;; ~ nothing
+  (hd/unbind rocks-domain
+             ;; intersection
+             ;; ~ nothing !
+             (hdd/intersection-1 [bread-domain tofifee-domain]))
+  (hdd/clj->vsa* :ground)))
+
+(f/sum (hdd/intersection-1 [bread-domain tofifee-domain]))
+
+(= (hdd/clj->vsa* :foo) (hd/unbind (hdd/clj->vsa* :foo) (hd/->empty)))
+
+
+;; -------------------------------------------------------------
+
+
+;; to show that you can juggle these things a little,
+;; let's query the union:
+
+(hdd/cleanup*
+ (hd/unbind
+  ;; ~ {:ground (⊕ :rocks :bread)}
+  (hd/unbind (hdd/union rocks-domain bread-domain)
+             ;; intersection
+             ;; ~ {:surface liquid}
+             (hdd/intersection-1 [bread-domain
+                                rocks-domain]))
+  (hdd/clj->vsa* :ground)))
+'(:bread :rocks)
+
+
+;; the difference is also meaningful
+(hdd/cleanup*
+ (hd/unbind
+  (hd/unbind (hdd/difference rocks-domain bread-domain)
+             ;; intersection
+             ;; ~ {:surface liquid}
+             (hdd/intersectiuon [bread-domain
+                                rocks-domain]))
+  (hdd/clj->vsa* :ground)))
+'(:rocks)
+
+;; other way around:
+(hdd/cleanup*
+ (hd/unbind
+  (hd/unbind (hdd/difference bread-domain rocks-domain)
+             ;; intersection
+             ;; ~ {:surface liquid}
+             (hdd/intersection-1 [bread-domain
+                                rocks-domain]))
+  (hdd/clj->vsa* :ground)))
+'(:bread)
+
+
+;; --------------------------------------------------------------------
+
+(comment
+  (->
+   (recover
+    item-memory
+    (hdd/automaton-destination
+     bread-domain
+     (hdd/clj->vsa* {:bread {:surface :empty}})
+     (hdd/clj->vsa* {:spread butter})))
+   ;; asking what bread do I have after
+   (hd/unbind
+    (hdd/clj->vsa* :bread))
+   (hd/unbind
+    (hdd/clj->vsa* :surface))
+   (hdd/cleanup*))
+  '(:butter :liquid))
+
+;; -----------------------------------------
+;; Lets' say that the system has associated lava with liquid
+;;
+
+(def lava (hd/thin (hd/superposition liquid (hdd/clj->vsa :lava))))
+
+;; hm, I can recover bread of course when I query with the supperposition of lava and butter
+(hdd/cleanup*
+ (hd/unbind (recover
+             item-memory
+             (hdd/automaton-source
+              bread-domain
+              (hdd/clj->vsa* {:bread {:surface
+                                      #{lava butter}}})
+              (hdd/clj->vsa* {:spread #{lava butter}})))
+            (hdd/clj->vsa* {:surface :empty})))
+'(:bread)
+
+;; that's not remarkable
+;;
+
+(def bread-domain
+  (hdd/finite-state-automaton-1
+    (remember-leaves!
+      (hdd/clj->vsa*
+        [[#{:bread {:surface :empty}} {:spread butter}
+          #{:bread {:surface butter}}]
+         [#{:bread {:surface butter}} {:spread butter}
+          #{:bread {:surface butter :thick? true}}]
+         [#{:bread {:surface butter}} {:scrub-off butter}
+          #{:bread {:surface butter :thin? true}}]]))))
+
+(def rocks-domain
+  (hdd/finite-state-automaton-1
+    (remember-leaves!
+      (hdd/clj->vsa*
+       [[#{:rocks {:surface :empty}}
+          {:spread lava}
+          #{:rocks {:surface lava}}]
+         [#{:rocks {:surface lava}} {:spread lava}
+          #{:rocks {:surface lava :thick? true}}]
+         [#{:rocks {:surface lava}}
+          {:scrub-off lava}
+          #{:rocks {:surface lava :thin? true}}]]))))
+
+(hdd/cleanup*
+ (recover item-memory
+          (hdd/automaton-source
+           bread-domain
+           ;; note the lack of bread
+           (hdd/clj->vsa* {:surface lava})
+           (hdd/clj->vsa* {:spread lava}))))
+'(:rocks :bread)
+
+
+;; -------------------------
+;; This works because {:spread lava} and {:spread butter} are similar
+;;
+;; This isn't much more remarkable that 'what is the dollar of mexico'
+;; but uses a finite state automaton and ambiguity.
+;;
+
+;; If I query the intersection, I get rocks out:
+(hdd/cleanup*
+ (recover item-memory
+          (hdd/automaton-source
+           (hdd/intersection bread-domain rocks-domain)
+           ;; note the lack of bread
+           (hdd/clj->vsa* {:surface lava})
+           (hdd/clj->vsa* {:spread lava}))))
+'(:rocks)
+
+;; querying the intersection for butter yields bread
+(hdd/cleanup*
+ (recover item-memory
+          (hdd/automaton-source
+           (hdd/intersection-1 [bread-domain
+                              rocks-domain])
+           ;; note the lack of bread
+           (hdd/clj->vsa* {:surface butter})
+           (hdd/clj->vsa* {:spread butter}))))
+'(:bread)
+
+
+;;
+;; set difference amplifies the difference betweent the domains
+;;
+
+;; these are non-deterministic outcomes, coinflips I guess
+;; It depends on the seed vectors going in, so once the seedvectors are set, this is deterministic
+;; (it also depends on what is in the item memory)
+(hdd/cleanup* (recover
+               item-memory
+               (hdd/automaton-source
+                (hdd/difference rocks-domain bread-domain)
+                (hdd/clj->vsa* {:thin? true})
+                (hdd/clj->vsa* {:scrub-off lava}))))
+'(:rocks)
+
+(hdd/cleanup* (recover
+                item-memory
+                (hdd/automaton-source
+                  (hdd/difference rocks-domain bread-domain)
+                  (hdd/clj->vsa* {:thin? true})
+                  (hdd/clj->vsa* {:scrub-off butter}))))
+'(:rocks)
+
+;; (compare with intersection)
+(hdd/cleanup*
+ (recover
+  item-memory
+  (hdd/automaton-source
+   (hdd/intersection-1 [rocks-domain bread-domain])
+   (hdd/clj->vsa* {:thin? true})
+   (hdd/clj->vsa* {:scrub-off butter}))))
+'(:bread :rocks)
+
+(hdd/cleanup*
+ (recover
+  item-memory
+  (hdd/automaton-source
+   (hdd/intersection-1 [rocks-domain bread-domain])
+   (hdd/clj->vsa* {:thin? true})
+   (hdd/clj->vsa* {:scrub-off #{butter lava}}))))
+'(:bread :rocks)
+
+
+;; with union
+(hdd/cleanup*
+ (recover
+  item-memory
+  (hdd/automaton-source
+   (hdd/union rocks-domain bread-domain)
+   (hdd/clj->vsa* {:thin? true})
+   (hdd/clj->vsa* {:scrub-off butter}))))
+'(:bread)
+;; then bread, guess thatt is a coinflip with the item memory or sth in that case
+;;
+
+;; quering with both lava and butter
+(hdd/cleanup*
+ (recover
+  item-memory
+  (hdd/automaton-source
+   (hdd/union rocks-domain bread-domain)
+   (hdd/clj->vsa* {:thin? true})
+   (hdd/clj->vsa* {:scrub-off #{butter lava}}))))
+'(:rocks)
+;; now rocks
+
+;; rocks or nothing
+(for [n (range 5)]
+  (hdd/cleanup* (recover
+                 item-memory
+                 (hdd/automaton-source
+                  (hdd/difference rocks-domain bread-domain)
+                  (hdd/clj->vsa* {:thin? true})
+                  (hdd/clj->vsa* {:scrub-off (hd/->seed)})))))
+'((:rocks) (:rocks) (:rocks) (:rocks) ())
+
+
+;; bread or nothing
+;; guess that is random
+(for [n (range 5)]
+  (some->
+   (recover
+    item-memory
+    (hdd/automaton-source
+     ;; with intersection instead
+     (hdd/intersection-1 [rocks-domain bread-domain])
+     (hdd/clj->vsa* {:thin? true})
+     (hdd/clj->vsa* {:scrub-off (hd/->seed)})))
+   hdd/cleanup*))
+'(nil (:bread) (:bread) nil nil)
+
+
+
+
+
+
+
+
+
+
+
+;; -------------------------
+
+(comment
+  (remember-leaves!
+   (hdd/clj->vsa*
+    [[{:bread {:surface :empty}} {:spread butter}
+      {:bread {:surface butter}}]
+     [{:bread {:surface butter}} {:spread butter}
+      {:bread {:surface butter :thick? true}}]
+     [{:bread {:surface butter}} {:scrub-off butter}
+      {:bread {:surface butter :thin? true}}]]))
+
+  (hd/similarity
+   (hdd/clj->vsa* {:bread {:surface :empty}})
+   (recover item-memory (hdd/clj->vsa* {:bread {:surface butter}})))
+  0.0
+  (hd/similarity
+   (hdd/clj->vsa* {:bread {:surface butter}})
+   (recover item-memory (hdd/clj->vsa* {:bread {:surface butter}})))
+  1.0)
+
+(comment
+  (do (remember item-memory
+                (hdd/clj->vsa* #{:bread {:surface :empty}}))
+      (= (hdd/clj->vsa* #{:bread {:surface :empty}})
+         (recover item-memory
+                  (hdd/clj->vsa* #{:bread
+                                   {:surface :empty}}))))
+  true
+  (do
+    (doseq [x (hdv-nodes
+               (hdd/clj->vsa*
+                [[#{:bread {:surface :empty}}
+                  #{:spread :butter}
+                  #{:bread {:surface :butter}}]
+                 [#{:bread {:surface :butter}}
+                  #{:spread :butter}
+                  #{:bread
+                    {:surface :butter :thick? true}}]
+                 [#{:bread {:surface :butter}}
+                  #{:scrub-off :butter}
+                  #{:bread
+                    {:surface :butter :thin? true}}]]))]
+      (remember item-memory x)
+      (remember item-memory
+                (hdd/clj->vsa* #{{:surface :empty} :bread}))
+      (remember item-memory
+                (hdd/clj->vsa* #{{:surface :empty} :bread}))
+      (remember item-memory
+                (hdd/clj->vsa* #{{:surface :empty}
+                                 :bread})))
+    (let [bread1outcome (recover item-memory
+                                 (hdd/clj->vsa*
+                                  #{:bread
+                                    {:surface :empty}}))]
+      (map (fn [symbolic-item]
+             {:bread1outcome-sum (f/sum bread1outcome)
+              :equal? (= bread1outcome
+                         (hdd/clj->vsa* symbolic-item))
+              :hdv-sum (f/sum (hdd/clj->vsa* symbolic-item))
+              :similarity (hd/similarity bread1outcome
+                                         (hdd/clj->vsa*
+                                          symbolic-item))
+              :symbolic-item symbolic-item})
+           [#{:bread {:surface :empty}} #{:spread :butter}
+            #{:bread {:surface :butter}}
+            #{:bread {:surface :butter}} #{:spread :butter}
+            #{:bread {:surface :butter :thick? true}}
+            #{:bread {:surface :butter}} #{:scrub-off :butter}
+            #{:bread {:surface :butter :thin? true}}]))))
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;; ---------------------------------------------------------------------
+
+
+
 
 ;; permuting sums:
 ;; e follows d

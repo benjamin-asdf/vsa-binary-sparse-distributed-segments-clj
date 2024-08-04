@@ -13,6 +13,8 @@
 (def tree1
   (apply hdd/tree*
     (hdd/clj->vsa* [[[:left :left :left] :a]
+                    [[:left :left :left :right] :a]
+                    [[:left :left :left :right :left] :a]
                     [[:left :right :left] :c]
                     [[:left :right :right] :d]
                     [[:left :left :right] :e]])))

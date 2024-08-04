@@ -11,6 +11,21 @@
             [tech.v3.datatype.argops :as dtype-argops]
             [bennischwerdtner.hd.data :as hdd]))
 
+
+
+;; this is the crossproduct the 2 sets
+(hd/bind (hdd/clj->vsa* #{:a :b :c})
+         (hdd/clj->vsa* #{:x :y :z}))
+
+(hdd/cleanup*
+ (hd/unbind
+  (hd/bind (hdd/clj->vsa* #{:a :b :c})
+           (hdd/clj->vsa* #{:x :y :z}))
+  (hdd/clj->vsa* :y)))
+'(:b :a :c)
+
+
+
 (hdd/cleanup*
  ;; obviously roughly #{:x :y :z}
  (hd/unbind
@@ -96,3 +111,10 @@ true
   fruit-domain
   (hdd/intersection sun banana)))
 '(:lemon)
+
+
+(hdd/cleanup*
+ (hdd/difference
+  (hdd/clj->vsa* #{:ice :cold :hard :water})
+  (hdd/clj->vsa* #{:cold :hard :stony :earth})))
+'(:ice :water)

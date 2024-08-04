@@ -39,17 +39,18 @@
     [obj]
     (or (@m obj) ((swap! m assoc obj (hd/->seed)) obj)))
   (defn cleanup-verbose
-    [q]
-    (filter (comp #(<= 0.2 %) :similarity)
-            (sort-by :similarity
-                     #(compare %2 %1)
-                     (into []
-                           (pmap (fn [[k v]]
-                                   {:k k
-                                    :similarity
-                                    (hd/similarity v q)
-                                    :v v})
-                                 @m)))))
+    ([q] (cleanup-verbose q 0.1))
+    ([q threshold]
+     (filter (comp #(<= threshold %) :similarity)
+             (sort-by :similarity
+                      #(compare %2 %1)
+                      (into []
+                            (pmap (fn [[k v]]
+                                    {:k k
+                                     :similarity
+                                     (hd/similarity v q)
+                                     :v v})
+                                  @m))))))
   (defn cleanup* [q] (map :k (cleanup-verbose q)))
   (defn cleanup [q] (first (cleanup* q))))
 
@@ -831,76 +832,74 @@
 (comment
   ;; tree capacity experiment
 
-  (for [N [5 10 20 50 100 150 200 500 1000 1500]]
-    (let [tree-spec (for [n (range N)]
-                      [(repeatedly (inc (rand-int 10))
-                                   #(rand-nth [:left :right]))
-                       (clj->vsa n)])
-          tree-spec (vals (update-vals (group-by first
-                                                 tree-spec)
-                                       first))
-          tree (apply tree tree-spec)]
-      [:N N
-       :mean
-       (f/mean
-        (for [n (range 20)]
-          (let [tree-elm (rand-nth tree-spec)]
-            (= (cleanup (second tree-elm))
-               (cleanup (tree->leave
+  (for
+      [N [5 10 20 30 50 100 500 1000]]
+      (let [tree-spec (into []
+                            (for [n (range N)]
+                              [(repeatedly (inc (rand-int 10))
+                                           #(rand-nth [:left
+                                                       :right]))
+                               n]))
+            tree (apply tree* (clj->vsa* tree-spec))]
+        [:N N :mean
+         (f/mean
+          (for [n (range 20)]
+            (let [tree-elm (rand-nth tree-spec)]
+              (=
+               (second tree-elm)
+               (cleanup (hd/unbind
                          tree
-                         (first tree-elm)))))))]))
+                         (tree-trace*
+                          (clj->vsa*
+                           (first
+                            tree-elm)))))))))]))
+  '([:N 5 :mean 1.0]
+    [:N 10 :mean 1.0]
+    [:N 20 :mean 1.0]
+    [:N 30 :mean 0.95]
+    [:N 50 :mean 1.0]
+    [:N 100 :mean 0.85]
+    [:N 500 :mean 0.6]
+    [:N 1000 :mean 0.0])
+
 
   ;; - build a tree with N random traces, of a random length between 1 and 10
   ;; - throw out duplicate traces, else the outcome is a superposition
   ;; - query 20 times and report the mean success rate of recovering the leaf
   ;;
   ;; this is with segment-count 20
-
-
-  '([:N 5 :mean 1.0]
-    [:N 10 :mean 1.0]
-    [:N 20 :mean 1.0]
-    [:N 50 :mean 1.0]
-    [:N 100 :mean 1.0]
-    [:N 150 :mean 1.0]
-    [:N 200 :mean 1.0]
-    [:N 500 :mean 1.0]
-    [:N 1000 :mean 1.0]
-    [:N 1500 :mean 0.55])
-
-  ;; ... it goes down at 1500 only
+  ;; -
+  ;; - seems like tree with 15-20 elements should be fine
   ;;
-  ;; I think the power comes from the density, if we where to thin we would trade speed for accuracy.
 
-
+  ;; if we where to thin we would trade speed for accuracy.
   ;; same thing with thinning already struggles with N = 5:
-  (for [N [5 10 20 50 100 150 200]]
-    (let [tree-spec (for [n (range N)]
-                      [(repeatedly (inc (rand-int 10))
-                                   #(rand-nth [:left :right]))
-                       (clj->vsa n)])
-          tree-spec (vals (update-vals (group-by first
-                                                 tree-spec)
-                                       first))
-          tree (hd/thin (apply tree tree-spec))]
-      [:N N
-       :mean
-       (f/mean
-        (for [n (range 20)]
-          (let [tree-elm (rand-nth tree-spec)]
-            (= (cleanup (second tree-elm))
-               (cleanup (tree->leave
-                         tree
-                         (first tree-elm)))))))]))
 
-  '([:N 5 :mean 0.35]
+  (for [N [5 10 20 30 50 100]]
+    (let [tree-spec (into []
+                          (for [n (range N)]
+                            [(repeatedly (inc (rand-int 10))
+                                         #(rand-nth [:left
+                                                     :right]))
+                             n]))
+          tree (hd/thin (apply tree* (clj->vsa* tree-spec)))]
+      [:N N :mean
+       (f/mean (for [n (range 20)]
+                 (let [tree-elm (rand-nth tree-spec)]
+                   (= (second tree-elm)
+                      (cleanup (hd/unbind
+                                tree
+                                (tree-trace*
+                                 (clj->vsa*
+                                  (first
+                                   tree-elm)))))))))]))
+
+  '([:N 5 :mean 0.75]
     [:N 10 :mean 0.1]
-    [:N 20 :mean 0.0]
+    [:N 20 :mean 0.1]
+    [:N 30 :mean 0.0]
     [:N 50 :mean 0.0]
-    [:N 100 :mean 0.0]
-    [:N 150 :mean 0.0]
-    [:N 200 :mean 0.0])
-  )
+    [:N 100 :mean 0.0]))
 
 
 

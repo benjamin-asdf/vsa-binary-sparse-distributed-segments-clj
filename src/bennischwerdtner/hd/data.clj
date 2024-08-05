@@ -34,28 +34,46 @@
 
 
 ;; tiny item memory
-(let [m (atom {})]
-  (defn clj->vsa
-    [obj]
-    (or (@m obj) ((swap! m assoc obj (hd/->seed)) obj)))
-  (defn cleanup-verbose
-    ([q] (cleanup-verbose q 0.1))
-    ([q threshold]
-     (filter (comp #(<= threshold %) :similarity)
-             (sort-by :similarity
-                      #(compare %2 %1)
-                      (into []
-                            (pmap (fn [[k v]]
-                                    {:k k
-                                     :similarity
-                                     (hd/similarity v q)
-                                     :v v})
-                                  @m))))))
-  (defn cleanup* [q] (map :k (cleanup-verbose q)))
-  (defn cleanup [q] (first (cleanup* q))))
+
+(defprotocol ItemMemory
+  (m-clj->vsa [this item])
+  (m-cleanup-verbose [this q]
+                     [this q threshold])
+  (m-cleanup [this q])
+  (m-cleanup* [this q]
+    [this q threshold]))
+
+(defrecord TinyItemMemory [m]
+  ItemMemory
+    (m-clj->vsa [this item]
+      (or (@m item)
+          ((swap! m assoc item (hd/->seed)) item)))
+    (m-cleanup-verbose [this q threshold]
+      (filter (comp #(<= threshold %) :similarity)
+        (sort-by :similarity
+                 #(compare %2 %1)
+                 (into []
+                       (pmap (fn [[k v]]
+                               {:k k
+                                :similarity
+                                  (hd/similarity v q)
+                                :v v})
+                             @m)))))
+    (m-cleanup-verbose [this q]
+      (m-cleanup-verbose this q 0.1))
+    (m-cleanup [this q] (first (m-cleanup* this q)))
+    (m-cleanup* [this q]
+      (map :k (m-cleanup-verbose this q))))
+
+(def ^:dynamic *item-memory* (->TinyItemMemory (atom {})))
+
+(defn clj->vsa [obj] (m-clj->vsa *item-memory* obj))
+(defn cleanup-verbose [q] (m-cleanup-verbose *item-memory* q))
+(defn cleanup [q] (m-cleanup *item-memory* q))
+(defn cleanup* [q] (m-cleanup* *item-memory* q))
 
 (defn clj->vsa*
- [obj]
+  [obj]
   (cond
     (hd/hv? obj) obj
     (set? obj) (apply hd/superposition (map clj->vsa* obj))
@@ -88,7 +106,14 @@
   [& args]
   (apply hd/superposition args))
 
-(defn union "See [[set]]." [& sets] (apply hd/superposition sets))
+;; It works the same for multisets, too
+(def multiset set)
+(def union set)
+;;
+;; (... this disregard for what a whole and what are elemnts is typcial for programing in superposition)
+;;
+
+
 
 (defn intersection-1
   "Return a hdv that represents the *intersection* between `sets`.
@@ -144,9 +169,6 @@
                      (f/- a (apply hd/superposition sets)))
                 :datatype
                 :int8))
-
-;; It works the same for multisets, too
-(def multiset set)
 
 
 ;; ---------------
@@ -205,33 +227,6 @@
                                    (f/+ (clj->vsa :b)
                                         (clj->vsa 20))]))
                  0.1))))
-
-(defn frequency
-  "Returns a number that roughly corresponds to the *membership frequency* of `a` in `multiset`.
-
-  `multiset` and `a` are both hdvs.
-
-  This works when `a` is a seed vector (all non zero bits are 1's).
-  Else, the outcome will be higher."
-  ([multiset a] (frequency multiset a hd/default-opts))
-  ([multiset a {:bsdc-seg/keys [segment-count]}]
-   (/ (f/dot-product multiset a) segment-count)))
-
-(comment
-  (assert (= (frequency (f/+ (clj->vsa :a)
-                             (clj->vsa :a)
-                             (clj->vsa :b)
-                             (clj->vsa :c))
-                        (clj->vsa :a))
-             2.0))
-  (assert (= (frequency (f/+ (clj->vsa :a)
-                             (clj->vsa :a)
-                             (clj->vsa :b)
-                             (clj->vsa :c))
-                        (clj->vsa :c))
-             1.0)))
-
-
 
 ;; -------------------------
 ;; Sequences
@@ -600,6 +595,7 @@
 ;; Plate 2003 was aware of this issue and propposed several non-commutative
 ;; alternative formulations his HRR system, including matrix multiplication.
 ;;
+;; Using permute seems to be a very elegant solution for having a non-commutative bind.
 ;;
 (defn ->directed-edge
   "Returns a new hdv representing a directed edge from `a` to `b`.
@@ -1085,12 +1081,11 @@
    (tree-trace [:left :right :left]))
   0.2
 
-
-
-  ;;
+  ;; ----------------
+  ;; Note:
   ;; It would be really cool to combine the upsides of a bind and a superposition trace representation.
   ;; If somehow the further to the root 2 traces differ, their traces would be more dissimilar.
-  ;;
+  ;; ----------------
 
   ;;
   ;; This has the rather interesting effect that we can query for leaves where the traces resemble each other
@@ -1106,7 +1101,7 @@
                         (tree-trace [:left :left :right]))
                (hd/bind (clj->vsa :c)
                         (tree-trace [:right :left
-                                       :right])))
+                                     :right])))
               (tree-trace [:left :left :right])))
 
 
@@ -1436,11 +1431,11 @@
     ;; Saying 'this is the transition that I want to do,
     ;; what is the input for this?'.
     ;;
-    (assert (= (cleanup (hd/unbind turnstile
-                                   (hd/bind (clj->vsa :locked)
-                                            (hd/permute
-                                             (clj->vsa
-                                              :unlocked)))))
+    (assert (= (cleanup (hd/unbind
+                         turnstile
+                         ;; what is the action that has the effect locked -> unlocked?
+                         (hd/bind (clj->vsa :locked)
+                                  (hd/permute (clj->vsa :unlocked)))))
                (cleanup (automaton-source turnstile
                                           (clj->vsa :locked)
                                           (clj->vsa :unlocked)))

@@ -341,24 +341,32 @@
     (py/with-gil-stack-rc-context
       (let [address (pyutils/ensure-torch address)
             inputs (torch/mv address-matrix address)
-            activations (torch/ge inputs
-                                  (torch/tensor
-                                   decoder-threshold
-                                   :device *torch-device*
-                                   :dtype torch/float32))]
+            activations (torch/ge inputs decoder-threshold)]
         (py.. out (copy_ activations))
         out))))
 
 (comment
-  (decode-addresses
-   (->address-matrix 3 3 0)
-   (torch/tensor [0 1 1] :dtype torch/float16 :device *torch-device*)
-   1)
-
-  (decode-addresses-coo
-   (->address-matrix-coo 3 3 0)
-   (torch/tensor [0 1 1] :dtype torch/float32 :device *torch-device*)
-   1))
+  (decode-addresses (->address-matrix 3 3 0)
+                    (torch/tensor [0 1 1]
+                                  :dtype torch/float16
+                                  :device *torch-device*)
+                    1)
+  (decode-addresses-coo (->address-matrix-coo 3 3 0)
+                        (torch/tensor [0 1 1]
+                                      :dtype torch/float32
+                                      :device
+                                        *torch-device*)
+                        1)
+  (decode-addresses-coo (->address-matrix-coo 3 3 0.5)
+                        (torch/tensor [0 1 1]
+                                      :dtype torch/float
+                                      :device
+                                        *torch-device*)
+                        1)
+  (py.. (torch/tensor [0 1 1]
+                      :dtype torch/float
+                      :device *torch-device*)
+        -dtype))
 
 
 ;; ---------------------------------
@@ -396,6 +404,12 @@
                         (add_ input-word)
                         (clamp_ :min 0 :max counter-max)))))
 
+;; ---
+;; I can implement a batch version, writing the content matrix is synchronized at the moment,
+;; makes sense because we clamp the matrix every write, but we don't need to.
+;; We could write a batch and clamp in the end.
+;; Will need to think about overflow for a moment though.
+;; ---
 (defn write-coo!
   [content-matrix address-locations input-word]
   (py/with-gil-stack-rc-context
@@ -425,7 +439,6 @@
             (py.. content-matrix (add_ update) (coalesce))]
       (py.. _content-matrix values (clamp_ 0 counter-max))
       content-matrix)))
-
 
 (defn read-coo-1
   "

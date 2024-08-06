@@ -68,7 +68,9 @@
 (def ^:dynamic *item-memory* (->TinyItemMemory (atom {})))
 
 (defn clj->vsa [obj] (m-clj->vsa *item-memory* obj))
-(defn cleanup-verbose [q] (m-cleanup-verbose *item-memory* q))
+(defn cleanup-verbose
+  ([q] (m-cleanup-verbose *item-memory* q))
+  ([q threshold] (m-cleanup-verbose *item-memory* q threshold)))
 (defn cleanup [q] (m-cleanup *item-memory* q))
 (defn cleanup* [q] (m-cleanup* *item-memory* q))
 

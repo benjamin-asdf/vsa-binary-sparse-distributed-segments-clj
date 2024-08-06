@@ -748,10 +748,3 @@
    (hdd/cleanup* target-result)])
 
 '[(:c :a) (:fallow :legumes)]
-
-
-
-
-
-(time (doall (for [n (range 1e3)]
-               (remember memory (hd/->seed) (hd/->seed)))))

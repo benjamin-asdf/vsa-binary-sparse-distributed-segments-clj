@@ -25,24 +25,22 @@
   (constantly
     (if (py.. torch/cuda (is_available)) :cuda :cpu)))
 
-
 (defn ensure-torch
   ([tens] (ensure-torch tens *torch-device*))
   ([tens torch-device]
    (cond (dtt/tensor? tens)
-           (let [t-numpy (numpy/zeros [(count tens)]
-                                      :dtype
-                                      numpy/float32)]
-             (dtt/tensor-copy! tens
-                               (dtt/ensure-tensor t-numpy))
-             (torch/tensor t-numpy
-                           :dtype torch/float32
-                           :device torch-device))
-           (= (py/python-type tens) :tensor) tens)))
+         (let [t-numpy (numpy/zeros [(count tens)]
+                                    :dtype
+                                    numpy/float32)]
+           (dtt/tensor-copy! tens
+                             (dtt/ensure-tensor t-numpy))
+           (torch/tensor t-numpy
+                         :dtype torch/float32
+                         :device torch-device))
+         (= (py/python-type tens) :tensor) tens)))
 
 (defn torch-memory-size
   [t]
   (* (py.. t (element_size)) (py.. t (numel))))
-
 
 (defn torch->jvm [tens] (py.. tens (to "cpu") (numpy)))

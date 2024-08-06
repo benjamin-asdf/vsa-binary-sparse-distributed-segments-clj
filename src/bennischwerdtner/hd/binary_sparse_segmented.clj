@@ -1038,7 +1038,7 @@
 
   Earlier alias: [[weaken]].
   "
-  ([a drop-ratio] (weaken a drop-ratio default-opts))
+  ([a drop-ratio] (drop a drop-ratio default-opts))
   ([a drop-ratio
     {:bsdc-seg/keys [segment-count segment-length N]
      :keys [tensor-opts]}]

@@ -58,47 +58,22 @@
               sdm/torch->jvm
               (dtt/->tensor :datatype :int8)))))
 
-(let [m (->memory)]
-  (remember m (hdd/clj->vsa* :a) (hdd/clj->vsa* :x))
-  (remember m (hdd/clj->vsa* :x) (hdd/clj->vsa* :b))
-  [(hdd/cleanup* (some-> (recover-1 m (hdd/clj->vsa* :a) 1)
-                         :result
-                         sdm/torch->jvm
-                         (dtt/->tensor :datatype :int8)))
-   ;; query with empty to find 'next'
-   (hdd/cleanup* (some-> (recover-1 m (hd/->empty) 1)
-                         :result
-                         sdm/torch->jvm
-                         (dtt/->tensor :datatype :int8)))])
-'[(:x) (:b)]
-
-
-
-;; [{([0. 0. 0. ... 0. 0. 0.] device='cuda:0')
-;;   :address-location-count 35
-;;   :confidence 0.37714284658432007
-;;   :result tensor}]
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+(comment
+  (let [m (->memory)]
+    (remember m (hdd/clj->vsa* :a) (hdd/clj->vsa* :x))
+    (remember m (hdd/clj->vsa* :x) (hdd/clj->vsa* :b))
+    [(hdd/cleanup* (some->
+                     (recover-1 m (hdd/clj->vsa* :a) 1)
+                     :result
+                     sdm/torch->jvm
+                     (dtt/->tensor :datatype :int8)))
+     ;; query with empty to find 'next'
+     (hdd/cleanup* (some-> (recover-1 m (hd/->empty) 1)
+                           :result
+                           sdm/torch->jvm
+                           (dtt/->tensor :datatype
+                                         :int8)))])
+  '[(:x) (:b)])
 
 
 
@@ -144,10 +119,7 @@
    :play-state play-state
    ;; doesn't need to keep history
    ;; intialize with non-sense
-   :action-register (hd/->seed)
-   ;; :sensor-register (hd/->seed)
-   ;; :focus (hd/->seed)
-  })
+   :action-register (hd/->seed)})
 
 (defn destination-rememberer-update
   [{:as state :keys [memory-remember play-state]}
@@ -158,8 +130,6 @@
                      (hd/permute next-world-state))
     (-> state
         (update :t inc)
-        ;; (assoc :focus new-focus)
-        ;; (assoc :sensor-register next-world-state)
         (assoc :action-register new-action))))
 
 ;; -----------------------------------------------------
@@ -254,12 +224,206 @@
 '[#{:b :a} :right (:c :b)]
 
 
+
+
 ;; -----------------------------------
 ;; Comparator V1
 ;; -----------------------------------
 ;; Now you can sort of 'roll' with the world, and say whether it is what you expect.
 ;;
 
+;;
+;; Cognitive architecture (roughly):
+;;
+;; Version predictor and 1 history state:
+;;
+;;
+;;
+;;     time ->
+;;     +----------------------------------+
+;;     |                                  |
+;;     | s0, s1, s2, ....                 | world
+;;     +--+-------------------------------+
+;;        |
+;;        |              t1
+;;        +------------------------------+
+;;        |                              |
+;;    +---+----+                    +----+----+
+;;    |   v    |                    |    v    +---------------> no line
+;;    |  s0    |          +-------->| 's1' s1 +---------------> yes line
+;;    +--------+          |         +---------+
+;;     predictor          |          comparator
+;;        |               |
+;;        |               |
+;;        | t1            |  t2
+;;        |               |
+;;     +--+------+        |
+;;     |  v      +--------+
+;;     | 's1'    |
+;;     +---------+
+;;      prediction register
+;;
+;;
+;; (see also Braitenberg Vehicle 14).
+;;
+;; pretending action is always 'right' atm.
+;; ~ 'time forward'
+
+;; ----------------------------------------------
+;; Implementation:
+;;
+
+(defn comparator-state
+  [predictor comperator]
+  {:comperator comperator
+   :prediction-register (hd/->seed)
+   :predictor predictor
+   :t 0})
+
+(defn update-comparator
+  [{:as state
+    :keys [predictor prediction-register comperator]}
+   s-world]
+  (-> state
+      (update :t inc)
+      (assoc :prediction-register (predictor s-world))
+      (assoc :comperator-output
+               (comperator prediction-register s-world))))
+
+;; ----------------------------------------------
+
+(def world-seq (cycle [:a :b :c]))
+(def action-seq (repeat :right))
+
+(let [[m lst] outcome
+      action :right]
+  (->>
+   (reductions update-comparator
+               (comparator-state
+                (fn [s]
+                  (recover m (hdd/clj->vsa* {action s}) 1)
+                  (some->
+                   (recover m (hd/->empty) 1)
+                   (hd/permute-inverse)))
+                (fn [prediction s-world]
+                  (when prediction
+                    [(hdd/cleanup* prediction) s-world
+                     (hd/similarity
+                      prediction
+                      (hdd/clj->vsa* s-world))])))
+               (take 20 world-seq))
+   (map :comperator-output)
+   (drop 1)))
+
+'([() :a 0.01]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0])
+
+;; ---------------------------------
+;; Comparator V2, levarage delay state predictor
+;; ---------------------------------
+;;
+;;     Compares directly, the sequence memory provides the time delay.
+;;
+;;
+;;     time ->
+;;     +----------------------------------+
+;;     |                                  |
+;;     | s0, s1, s2, ....                 | world
+;;     +--+-------------------------------+
+;;        |
+;;        |              t1
+;;        +------------------------------+                                               👈 one notices that this scheme needs delay lines here,
+;;        |                              |                                                  equivalent to how long the predictor takes
+;;    +---+----+                    +----+----+                                             ----
+;;    |   v    |                    |    v    +---------------> no line                     - could be spread out, too. So comparator is fed partial data.
+;;    |  s0    |          +-------->| 's0' s0 +---------------> yes line                    - alternatively, a world register. Could be 'inside' comparator, too.
+;;    +--------+          |         +---------+                                             - feed comparator, then see what comparator has to say about p-state, once it comes
+;;     predictor          |          comparator                                             ----
+;;        |               |                                                                 - comparator is trivial in circuits
+;;        |               | t1
+;;        +---------------+
+;;
+;;
+;;
+;; Kanerva (SDM 1988) mentions the fundamental trick in the context of sequence memory.
+;;
+;;
+;;
+;; ----------------------------------------------
+;; Implementation:
+;;
+
+(defn comparator-state-2
+  [predictor comperator]
+  {:comperator comperator :predictor predictor :t 0})
+
+(defn update-comparator-2
+  [{:as state :keys [predictor comperator]} s-world]
+  (let [p (predictor s-world)]
+    (-> state
+        (update :t inc)
+        ;; diagnostic
+        (assoc :prediction p)
+        (assoc :comperator-output (comperator p s-world)))))
+
+;; ----------------------------------------------
+
+(let [[m lst] outcome
+      action :right]
+  (->> (reductions
+         update-comparator-2
+         (comparator-state-2
+           (fn [s]
+             (some->
+               (recover m (hdd/clj->vsa* {action s}) 1)
+               (hd/permute-inverse)))
+           (fn [prediction s-world]
+             (when prediction
+               [(hdd/cleanup* prediction) s-world
+                (hd/similarity prediction
+                               (hdd/clj->vsa* s-world))])))
+         (take 20 world-seq))
+       (drop 1)
+       (map :comperator-output)))
+
+'([(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0]
+ [(:c) :c 1.0]
+ [(:a) :a 1.0]
+ [(:b) :b 1.0])
 
 
 
@@ -287,6 +451,28 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;; Attic:
+;; -----------------------------------------------------
 
 
 
@@ -405,14 +591,9 @@
    (hd/permute-inverse)
    (hdd/cleanup*)))
 
-;; Hm, I tried this but this didn't have good results.
+;; Hm, I tried this, did something wrong, I guess
 (let [[m lst] outcome]
-  (let [r (some-> (recover-1 m
-                             (hd/superposition
-                               (hdd/clj->vsa* {:c :left})
-                               (hd/permute (hdd/clj->vsa*
-                                             :b)))
-                             3)
+  (let [r (some-> (recover-1 m (hd/permute (hdd/clj->vsa* :b)) 3)
                   :result
                   sdm/torch->jvm
                   (dtt/->tensor :datatype :int8))]
@@ -420,7 +601,8 @@
      [:right
       (some-> r
               (hd/unbind (hdd/clj->vsa* :right))
-              (hdd/cleanup*)) :left]]
+              (hdd/cleanup*))]]
     ;; doing something wrong ig.
-    (hd/similarity (hdd/clj->vsa* :c)
-                   (hd/unbind r (hdd/clj->vsa* :left)))))
+    (hd/similarity
+     (hdd/clj->vsa* :a)
+     (hd/unbind r (hdd/clj->vsa* :left)))))

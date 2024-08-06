@@ -1,4 +1,5 @@
 (ns bennischwerdtner.hd.binary-sparse-segmented
+  (:refer-clojure :exclude [drop])
   (:require
    [tech.v3.datatype.functional :as f]
    [tech.v3.datatype :as dtype]
@@ -255,11 +256,19 @@
   ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
    (dtt/rotate a [(* n segment-length)])))
 
-;; (dtt/rotate (range 10) [3])
-;; #tech.v3.tensor<int64>[10]
-;; [7 8 9 0 1 2 3 4 5 6]
+(defn permute-block-local-n
+  "Returns the block local circular convolution of `a` by `n`.
+  This is the same as binding with a known offset.
 
-(defn permute-inner-n [a n])
+  See [[unit-vector-n]].
+  "
+
+  ([a n] (permute-block-local-n a n default-opts))
+  ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
+   (-> a
+       (dtt/reshape [segment-count segment-length])
+       (dtt/map-axis (fn [segment] (dtt/rotate segment [n])))
+       (dtt/reshape [N]))))
 
 (defn permute
   "
@@ -648,26 +657,6 @@
   ;; I swap this here so the mapping is left
   [a b] (bind b a -1))
 
-
-;;
-;;
-;; c
-;;
-;; (bind a b -1)
-
-(def a (bundle (->seed) (->seed)))
-(def b (->seed))
-(def c (bind b a))
-
-(f/sum (bind b c -1))
-(similarity a (bind b c -1))
-(similarity a (bind b c -1))
-(similarity b (bind a c -1))
-
-
-
-
-
 (defn unit-vector-n
   "
   Returns the `n` unit vector.
@@ -677,14 +666,14 @@
 
 
   (let [a (->hv)]
-   (= (bind a (unit-vector-n 3)) (permute-inner-n a 3)))
+   (= (bind a (unit-vector-n 3)) (permute-block-local-n a 3)))
   => true
 
   (let [a (->hv)]
    (= (bind a (unit-vector-n 1)) (permute-inner a)))
   => true
 
-  See [[permute-inner-n]].
+  See [[permute-block-local-n]].
   "
   ([n] (unit-vector-n n default-opts))
   ([n
@@ -1010,13 +999,22 @@
 ;; Similar to bundleling with random noise,
 ;; but making it thinner.
 ;;
-;; 'thin' was taken, 'drop' was a clojure.core function
+;; Called it 'weaken' first.
+;; Decided it should be `drop` for obviousness.
 ;;
-;; 'weaken'?
 ;;
-;;
-(defn weaken
-  "Returns a weakened vector by dropping segment bits from `a`.
+(defn drop
+  "Returns a sparser version of `a` by dropping bits from it.
+
+  `drop-ratio` 0 doesn't change anything:
+
+  (let [a (->hv)]
+    (= a (weaken a 0)))
+
+  `drop-ratio` 1 returns a zero vector:
+
+  (let [a (->hv)]
+    (zero? (f/reduce-+ (weaken a 1))))
 
   This allows one to express the notion of a mix of hypervectors,
   where they contribute to different amount.
@@ -1037,13 +1035,15 @@
   Like moving on the line between the points.
 
   This is deterministic.
+
+  Earlier alias: [[weaken]].
   "
   ([a drop-ratio] (weaken a drop-ratio default-opts))
   ([a drop-ratio
     {:bsdc-seg/keys [segment-count segment-length N]
      :keys [tensor-opts]}]
    ;; the indices decide how to drop,
-   ;; 'context dependent weakening'
+   ;; is a form of 'context dependent thinning'.
    ;;
    ;; I think I can just make a cutoff at the segment
    ;; indices. This might have some undesirable
@@ -1066,6 +1066,7 @@
                       indices)))
      (dtt/->tensor v tensor-opts))))
 
+(def weaken drop)
 
 (comment
   (dtt/reduce-axis
@@ -1077,12 +1078,17 @@
   (let [a (->hv)]
     (= a (weaken a 0)))
 
-
   ;; "1" returns a zero vector
-  (let [a (->hv)] (zero? (f/reduce-+ (weaken a 1))))
+  (let [a (->hv)]
+    (zero? (f/reduce-+ (weaken a 1))))
+
+
+
 
   (let [a (->hv)]
     (f/reduce-+ (weaken a 0)))
+
+
   100
 
   (for [n (range 10)]

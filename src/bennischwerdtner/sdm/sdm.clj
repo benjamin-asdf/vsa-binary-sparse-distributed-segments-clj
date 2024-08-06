@@ -662,7 +662,7 @@
   (converged-lookup [this address top-k]
                     [this address top-k decoder-threshold])
   (write [this address content]
-         [this address content decoder-threshold]))
+    [this address content decoder-threshold]))
 
 (defn ->decoder-coo
   [{:keys [address-count word-length address-density]}]
@@ -735,12 +735,15 @@
                         top-k
                         opts)))))
 
+
 ;; Not yet figured out.
+;; is the same as 'iterative' lookup
+;; same for sequences and auto associative converge
 (defn converged-lookup-impl
   [sdm address
    {:keys [stop? top-k decoder-threshold max-steps]}]
   (reduce
-    (fn [{:as acc :keys [address result-xs]} _]
+    (fn [{:as acc :keys [address result-xs]} n]
       (let [next-outcome
               (lookup sdm address top-k decoder-threshold)
             {:keys [stop-reason success?]}
@@ -761,20 +764,18 @@
                       :result-address (:result next-outcome)
                       :address (:result next-outcome))))
           {:address (:result next-outcome)
+           :n n
            :result-xs (conj result-xs next-outcome)})))
     {:address address
      :result-xs [{:input? true :result address}]}
     ;; taste
     (range (or max-steps 7))))
 
-
 (defn sparse-sdm
   [{:as opts
     :keys [address-count word-length address-density
            decoder]}]
-  (let [content-matrix (->content-matrix-coo address-count
-                                             word-length)
-        decoder (or decoder (->decoder-coo opts))
+  (let [decoder (or decoder (->decoder-coo opts))
         storage (->sdm-storage-coo opts)]
     (reify
       SDM
@@ -790,7 +791,6 @@
                                   address
                                   decoder-threshold)
                   top-k)))))
-
 
 (def ->sdm sparse-sdm)
 
@@ -1458,6 +1458,9 @@
   (when-let [last (:confidence (peek result-xs))]
     (< (:confidence result) last)))
 
+;;
+;; Just explorative version.
+;;
 (defn ->k-fold-memory
   [{:as opts
     :keys [k-delays sdm-opts stop? decoder-threshold]}]
@@ -1468,80 +1471,77 @@
   ;;
   (let [decoder (->decoder-coo opts)
         sdm-storage (->sdm-storage-coo opts)
-        addr-delay-state (atom (->delayed-address-state
-                                 opts))
+        addr-delay-state (atom (->delayed-address-state opts))
         decode-and-step!
-          (fn [addr decoder-threshold]
-            (let [address-locations-complete
-                    ;; 'a'
-                    ;;
-                    (decode-address decoder
-                                    addr
-                                    decoder-threshold)
-                  ;; now we split the addresses of 'a'
-                  ;; into it's delay lines
-                  _ (update-future-addresses!
-                      @addr-delay-state
-                      address-locations-complete)
-                  ;; the address locations of 'now'
-                  ;; {a0}
-                  address-locations (read-address-locations
-                                      @addr-delay-state)
-                  ;;
-                  ;; move time forward, so the next
-                  ;; addresses will contain
-                  ;; {a1}
-                  _ (swap! addr-delay-state
-                      move-address-locations)]
-              address-locations))]
+        (fn [addr decoder-threshold]
+          (let [address-locations-complete
+                ;; 'a'
+                ;;
+                (decode-address decoder
+                                addr
+                                decoder-threshold)
+                ;; now we split the addresses of 'a'
+                ;; into it's delay lines
+                _ (update-future-addresses!
+                   @addr-delay-state
+                   address-locations-complete)
+                ;; the address locations of 'now'
+                ;; {a0}
+                address-locations (read-address-locations @addr-delay-state)
+                ;;
+                ;; move time forward, so the next
+                ;; addresses will contain
+                ;; {a1}
+                _ (swap! addr-delay-state move-address-locations)]
+            address-locations))]
     (reify
       clojure.lang.IDeref
-        (deref [this]
-          {:addr-delay-state addr-delay-state
-           :decoder decoder
-           :decode-and-step! decode-and-step!
-           :sdm-storage sdm-storage})
+      (deref [this]
+        {:addr-delay-state addr-delay-state
+         :decoder decoder
+         :decode-and-step! decode-and-step!
+         :sdm-storage sdm-storage})
       MovesTime
-        (move-time [this] (move-time this 1))
-        (move-time [this t]
-          (if (< t 0)
-            (throw
-              (Exception.
-                "doesn't support moving back in time currently"))
-            (swap! addr-delay-state move-address-locations
-              t)))
+      (move-time [this] (move-time this 1))
+      (move-time [this t]
+        (if (< t 0)
+          (throw
+           (Exception.
+            "doesn't support moving back in time currently"))
+          (swap! addr-delay-state move-address-locations
+                 t)))
       Resets
-        (reset [this]
-          (swap! addr-delay-state reset-delay-state))
+      (reset [this]
+        (swap! addr-delay-state reset-delay-state))
       SequenceMemory
-        (write-xs! [this address-xs decoder-threshold]
-          (doseq [[addr content] (partition 2 1 address-xs)]
-            (write-1 sdm-storage
-                     (decode-and-step! addr
-                                       decoder-threshold)
-                     content)))
-        (lookup-xs [this address decoder-threshold]
-          (reduce (fn [{:as acc :keys [address result-xs]}
-                       _]
-                    (let [address-set (decode-and-step!
-                                        address
-                                        decoder-threshold)
-                          next-outcome (lookup-1 sdm-storage
-                                                 address-set
-                                                 1)]
-                      (if-let [stop-reason
-                                 (stop? acc next-outcome)]
-                        (ensure-reduced
-                          (assoc acc
-                            :stop-reason stop-reason
-                            :stop-result next-outcome))
-                        {:address (:result next-outcome)
-                         :result-xs (conj result-xs
-                                          next-outcome)})))
-            {:address address
-             :result-xs [{:input? true :result address}]}
-            ;; taste
-            (range 7))))))
+      (write-xs! [this address-xs decoder-threshold]
+        (doseq [[addr content] (partition 2 1 address-xs)]
+          (write-1 sdm-storage
+                   (decode-and-step! addr
+                                     decoder-threshold)
+                   content)))
+      (lookup-xs [this address decoder-threshold]
+        (reduce (fn [{:as acc :keys [address result-xs]}
+                     _]
+                  (let [address-set (decode-and-step!
+                                     address
+                                     decoder-threshold)
+                        next-outcome (lookup-1 sdm-storage
+                                               address-set
+                                               1)]
+                    (if-let [stop-reason
+                             (stop? acc next-outcome)]
+                      (ensure-reduced
+                       (assoc acc
+                              :stop-reason stop-reason
+                              :stop-result next-outcome))
+                      {:address (:result next-outcome)
+                       :result-xs (conj result-xs
+                                        next-outcome)})))
+                {:address address
+                 :result-xs [{:input? true :result address}]}
+                ;; taste
+                (range 7))))))
 
 
 (comment
@@ -1844,6 +1844,74 @@
     ;; even though a and b are unrelated, they are possible continuations of `d`
     ;; but `b` is only unmasked secondarily, in a more 'divergent mode' of querying.
     ))
+
+
+
+;; -------------------------------------
+
+(defn k-fold-sdm
+  [opts]
+  (let [inner-decoder (->decoder-coo opts)
+        addr-delay-state (atom (->delayed-address-state
+                                 opts))
+        decode-and-step!
+          (fn [addr decoder-threshold]
+            (let [address-locations-complete
+                    ;; 'a'
+                    ;;
+                    (decode-address inner-decoder
+                                    addr
+                                    decoder-threshold)
+                  ;; now we split the addresses of 'a'
+                  ;; into it's delay lines
+                  _ (update-future-addresses!
+                      @addr-delay-state
+                      address-locations-complete)
+                  ;; the address locations of 'now'
+                  ;; {a0}
+                  address-locations (read-address-locations
+                                      @addr-delay-state)
+                  ;;
+                  ;; move time forward, so the next
+                  ;; addresses will contain
+                  ;; {a1}
+                  _ (swap! addr-delay-state
+                      move-address-locations)]
+              address-locations))
+        storage (->sdm-storage-coo opts)]
+    (reify
+      MovesTime
+        (move-time [this] (move-time this 1))
+        (move-time [this t]
+          (if (< t 0)
+            (throw
+              (Exception.
+                "doesn't support moving back in time currently"))
+            (swap! addr-delay-state move-address-locations
+              t)))
+      Resets
+        (reset [this]
+          (swap! addr-delay-state reset-delay-state))
+      SDM
+        (write [this address content decoder-threshold]
+          (write-1 storage
+                   (decode-and-step! address
+                                     decoder-threshold)
+                   content))
+      (lookup
+          [this address top-k decoder-threshold]
+          (lookup-1 storage
+                    (decode-and-step! address
+                                      decoder-threshold)
+                    top-k)))))
+
+
+
+
+
+
+
+;; -------------------------------------
 
 
 

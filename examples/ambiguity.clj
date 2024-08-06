@@ -22,7 +22,7 @@
 ;; - vanishingly, roughly, mostly, impossibly, nothing, everything, non-sense make sense conceptually
 ;;   but perhaps I can find an alternative to 'thin' the whole thing.
 ;; - something more like alternative set functions, expanding the vacubulary 'union', 'difference' to include mix-states
-;; - would be interesting to program in superposition, utilzing ambiguity
+;; - would be interesting to program in superposition, utilizing ambiguity
 ;;
 
 
@@ -37,7 +37,8 @@
 ;; I think there is something deep about the concept that
 ;; non-sense and gensym are the same operation
 ;; P. Kanerva: "Randomness is the path of least assumption".
-;; G. Buzsáki: "Nothing is new for the brain."
+;; G. Buzsáki: "Nothing is new for the brain." (pre allocated, random trajectories are there for pluggin).
+;; D. Deutsch: "The idea comes first." (Ideas must be random at the bottom).
 (def create non-sense)
 
 (defn mix
@@ -68,7 +69,7 @@
   "
   ([a] (vanishingly a 0.5))
   ([a amount-of-a]
-   (hd/weaken a (- 1 amount-of-a))))
+   (hd/drop a (- 1 amount-of-a))))
 
 (comment
   (let [a (create)] (hd/similarity a (vanishingly a)))
@@ -120,9 +121,7 @@
   (let [a (create)]
     [(hd/similarity a (roughly a 0.2))
      (hd/similarity a (roughly a 1))])
-  [0.9 0.5]
-
-  )
+  [0.9 0.5])
 
 (comment
   (for [n (range 5)]
@@ -149,15 +148,14 @@
 
 (comment
   (let [a (create)
-        b (create)
-        c (hd/bind a b)
-        c2 (hd/bind a (impossibly b))]
-    [(f/sum c2)
-     (hd/similarity b (hd/unbind c2 a))
-     (= (impossibly b) (hd/unbind c2 a))
-     (hd/similarity (mix a (impossibly b)) a)
-     (hd/similarity (mix a (impossibly b)) b)])
-  [-100.0 0.0 true 0.99 0.0])
+      b (create)
+      c (hd/bind a b)
+      c2 (hd/bind a (impossibly b))]
+  [(f/sum c2) (hd/similarity b (hd/unbind c2 a))
+   (= (impossibly b) (hd/unbind c2 a))
+   (hd/similarity (mix a (impossibly b)) a)
+   (hd/similarity (mix a (impossibly b)) b)])
+  [-20.0 0.0 true 1.0 0.0])
 
 (defn without
   "Returns a (potentially super sparse) version of `a` with all of `b` removed.
@@ -173,11 +171,10 @@
   (let [a (create)
         b (create)
         c (mix a b)]
-    [(hd/similarity a c)
-     (hd/similarity b c)
+    [(hd/similarity a c) (hd/similarity b c)
      (hd/similarity a (without c b))
      (hd/similarity b (without c b))])
-  [0.4 0.6 0.4 0.0])
+  [0.45 0.55 0.45 0.0])
 
 (defn nothing
   "Returns the empty hypervector.
@@ -212,7 +209,7 @@
   0.0)
 
 ;; ... 'everything' would also make sense
-;; If used as a permutation wiring, perhaps this should be equal to a fully connected neural net layer
+;; If used to represent a permutation wiring, perhaps this should be equal to a fully connected neural net layer
 (defn everything
   "Returns a maximally dense hypervector that is similar all hypervectors.
   Except if they are super sparse, like 'nothing'.

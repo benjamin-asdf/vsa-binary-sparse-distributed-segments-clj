@@ -41,7 +41,7 @@
 
 ;;
 ;; a right -> b
-;; a left -> 'nothing'
+;; a left -> 'nothing' (but 'a' because of update-world implementation)
 
 ;; -----------------------------------------------
 ;; memory
@@ -92,6 +92,7 @@
 ;; ---------------------------------------
 ;; explorer system
 ;; (this is k-fold destination-rememberer)
+;; (see k_fold_triangle.clj)
 ;;
 
 (defn destination-rememberer-state
@@ -166,9 +167,8 @@
     [state action (hdd/cleanup* prediction)]))
 '[#{:b :a} :right (:c :b)]
 
-
 (let [[m lst] outcome]
-  (let [state :x
+  (let [state #{:x :a}
         action :right
         prediction
           (hd/permute-inverse
@@ -177,7 +177,21 @@
               ;; recover, you could even say 0
               (recover m (hdd/clj->vsa* {action state}) 0)
               ;; double req to get to the prediction
-              (recover m (hd/->empty) 1)))]
+              (recover m (hd/->empty) 2)))]
+    [state action (hdd/cleanup* prediction)]))
+'[#{:x :a} :right (:y :b)]
+
+(let [[m lst] outcome]
+  (let [state :x
+        action :right
+        prediction
+        (hd/permute-inverse
+         (do
+           ;; top-k only has an effect for the
+           ;; recover, you could even say 0
+           (recover m (hdd/clj->vsa* {action state}) 0)
+           ;; double req to get to the prediction
+           (recover m (hd/->empty) 1)))]
     [state action (hdd/cleanup* prediction)]))
 
 ;; with top-k = 2, looks noisy
@@ -237,7 +251,12 @@
  [(:o) :o 1.0]
  [(:p) :p 1.0]
  [(:q) :q 1.0]
- [(:r) :r 1.0])
+  [(:r) :r 1.0])
+
+;; ... comparator says 'yes' to the sequence
+
+
+;; perturbing it:
 
 (let [[m lst] outcome
       action :right
@@ -245,26 +264,28 @@
             (recover m (hd/->empty) 0)
             (recover m (hd/->empty) 0))]
   (->> (reductions
-         update-comparator-2
-         (comparator-state-2
-           (fn [s]
-             (some->
-              (recover m (hdd/clj->vsa* {action s}) 1)
-               (hd/permute-inverse)))
-           (fn [prediction s-world]
-             (when prediction
-               [(hdd/cleanup* prediction)
-                s-world
-                (hd/similarity prediction (hdd/clj->vsa* s-world))])))
-         [:m :n :j :f :a])
+        update-comparator-2
+        (comparator-state-2
+         (fn [s]
+           (some->
+            (recover m (hdd/clj->vsa* {action s}) 1)
+            (hd/permute-inverse)))
+         (fn [prediction s-world]
+           (when prediction
+             [(hdd/cleanup* prediction)
+              s-world
+              (hd/similarity prediction (hdd/clj->vsa* s-world))])))
+        ;; not alphabet
+        [:m :n :j :f :a])
        (drop 1)
        (map :comperator-output)))
 
 '([(:m) :m 1.0]
- [(:n) :n 1.0]
- [(:o) :j 0.0]
- [(:f) :f 1.0]
- [(:g) :a 0.0])
+  [(:n) :n 1.0]
+  ;; predictect o, got j
+  [(:o) :j 0.0]
+  [(:f) :f 1.0]
+  [(:g) :a 0.0])
 
 
 ;; ->
@@ -272,7 +293,6 @@
 ;; i.e 0.0 could wire 'no' line for the comparator,
 ;; signaling novelity or surprise.
 ;;
-
 
 
 ;; experiment, query with generilized state:
@@ -304,22 +324,23 @@
 ;;   [(:l) :l 1.0])
 
 ;; --------------------
-;; - The outcome of this set of 'most relevant' symbols in the sdm.
-;; - It's simply the most extreme generilized state given the alphabet.
+;; Discussion:
 ;;
+;; - The outcome of this is the set of 'most relevant' symbols in the sdm.
+;; - It's simply the most extreme generilized state, given the alphabet.
 ;;
 
 (float (/ (.indexOf alphabet :m) (count alphabet)))
 0.46153846
 
 ;; :m is right at the center of the alphabet.
-;; Actually makes sense that via the random left right self play, it was visited most often.
+;; Actually makes sense that via the left right self play, it was visited most often.
 ;;
 
 
 
 ;; ------------------------------------------
-;; Substring seach
+;; Substring search
 ;;
 ;; - this is for trying out in what ways the trainend alphabet model can be used.
 ;;
@@ -406,7 +427,11 @@
 ;;
 ;; Says 'yes' to stuff, because the incoming world data has a lot of effect
 ;;
-
+;;
+;; ------------------------------------------------------------------
+;; (just) Experiments:
+;;
+;; (lack of narrative might be confusing, you can skip to 'use comparator v1')
 
 (defn substring-confidence-2
   [m substring-symbols]
@@ -415,32 +440,32 @@
               (recover m (hd/->empty) 0)
               (recover m (hd/->empty) 0))]
     (->> (reductions
-           update-comparator-2
-           (comparator-state-2
-             (fn [s]
-               (some-> (recover m
-                                (hd/drop (hdd/clj->vsa*
-                                           {action s})
-                                         ;; it still
-                                         ;; resolves
-                                         ;; stuff even
-                                         ;; when 75% of
-                                         ;; bits are
-                                         ;; dropped
-                                         0.75)
-                                1)
-                       (hd/permute-inverse)))
-             (fn [prediction s-world]
-               (when prediction
-                 [(hdd/cleanup* prediction) s-world
-                  (hd/similarity prediction
-                                 (hdd/clj->vsa*
-                                   s-world))])))
-           substring-symbols)
+          update-comparator-2
+          (comparator-state-2
+           (fn [s]
+             (some-> (recover m
+                              (hd/drop
+                               (hdd/clj->vsa* {action s})
+                               ;; it still
+                               ;; resolves
+                               ;; stuff even
+                               ;; when 75% of
+                               ;; bits are
+                               ;; dropped
+                               0.75)
+                              1)
+                     (hd/permute-inverse)))
+           (fn [prediction s-world]
+             (when prediction
+               [(hdd/cleanup* prediction) s-world
+                (hd/similarity prediction
+                               (hdd/clj->vsa*
+                                s-world))])))
+          substring-symbols)
          (drop 1)
          (map :comperator-output)
          ;; (map #(nth % 2))
-    )))
+         )))
 
 (for [n (range 5)]
   (let [n (rand-int (inc (count alphabet)))
@@ -557,6 +582,13 @@
 
 ;; -------------------
 ;; use comparator v1
+;;
+;; - comparator v1 keeps a prediction state around (see k_fold_triangle.clj)
+;; - this is not 'impressed' by the current state.
+;; - So the comparotor compares the purely 'predicted' state to the world.
+;; - This separates the world from the internal state enough so that we can make
+;;   a judgement, whether this is a remembered sequence.
+;;
 
 (defn comparator-state
   [predictor comperator]
@@ -588,36 +620,35 @@
               (recover m (hd/->empty) 0)
               (recover m (hd/->empty) 0))]
     (->> (reductions
-          update-comparator
-          (comparator-state
-           (fn [s]
-             (recover m (hdd/clj->vsa* {action s}) 1)
-             (some-> (recover m (hd/->empty) 1)
-                     (hd/permute-inverse)))
-           (fn [prediction s-world]
-             (when prediction
-               [(hdd/cleanup* prediction) s-world
-                (hd/similarity prediction
-                               (hdd/clj->vsa*
-                                s-world))])))
-          substring-symbols)
+           update-comparator
+           (comparator-state
+             (fn [s]
+               (recover m (hdd/clj->vsa* {action s}) 1)
+               (some-> (recover m (hd/->empty) 1)
+                       (hd/permute-inverse)))
+             (fn [prediction s-world]
+               (when prediction
+                 [(hdd/cleanup* prediction) s-world
+                  (hd/similarity prediction
+                                 (hdd/clj->vsa*
+                                  s-world))])))
+           substring-symbols)
          (drop 2)
-         (map :comperator-output)
-         ;; (map #(nth % 2))
-         )))
+         (map :comperator-output))))
 
 (let [rand-substr [:m :n :o :p :q :j]]
   [rand-substr
    (f/mean (->> (substring-confidence-3 (first outcome)
                                         rand-substr)
                 (map #(nth % 2))))])
+[[:m :n :o :p :q :j] 0.8]
 
 (let [rand-substr [:j :k :l]]
   [rand-substr
    (f/mean (->> (substring-confidence-3 (first outcome)
                                         rand-substr)
                 (map #(nth % 2))))])
-
+[[:j :k :l] 1.0]
 
 (defn contains-reference
   [v subv]
@@ -661,6 +692,13 @@
  (map (juxt :cog-contains? :contais-reference?) contains-classification-outcome))
 '()
 
+;;
+;; It solves the substring problem
+;;
+;; Next: Make empirical study what the capacity is, with parameters for SDM and alphabet length etc.
+;;
+
+
 ;; -----------------------------------------------
 ;; what comes after z?
 
@@ -671,9 +709,9 @@
               (recover m (hd/->empty) 0)
               (recover m (hd/->empty) 0))
         prediction
-          (hd/permute-inverse
-            (do (recover m (hdd/clj->vsa* {action state}) 0)
-                (recover m (hd/->empty) 1)))]
+        (hd/permute-inverse
+         (do (recover m (hdd/clj->vsa* {action state}) 0)
+             (recover m (hd/->empty) 1)))]
     (hdd/cleanup* prediction)))
 '(:z)
 
@@ -686,11 +724,11 @@
 ;;
 ;; Options that come to mind:
 ;;
-;; - right of z is z, like here righ tnnow
+;; - right of z is z, like here right now
 ;; - right of z is non-sense, which can be interpreted as a boundary [:z :right] -> non-sense,
 ;;   querying with non-sense will not go anywhere
 ;; - right of z is a end of sequence token, :eos
-;; - right of z is a special token for :nothing, or :boundary
+;; - right of z is a special token for :nothing, or :boundary (in this version left of a and right of z is the same)
 ;;
 
 
@@ -704,7 +742,6 @@
         _ (do (recover m (hd/->empty) 0)
               (recover m (hd/->empty) 0)
               (recover m (hd/->empty) 0))]
-    ;; (hdd/cleanup* prediction)
     (map hdd/cleanup*
       (reductions
         (fn [state _]
@@ -725,7 +762,6 @@
         _ (do (recover m (hd/->empty) 0)
               (recover m (hd/->empty) 0)
               (recover m (hd/->empty) 0))]
-    ;; (hdd/cleanup* prediction)
     (map hdd/cleanup*
       (reductions
         (fn [state _]
@@ -741,8 +777,6 @@
 
 
 ;; try with 2 'leading' / 'priming' elements
-
-
 
 (let [[m lst] outcome]
   (let [state-xs (rand-nth
@@ -792,14 +826,15 @@
 ;;
 ;; Current goals:
 ;; - Build up to (partially) solving the copycat domain (Hofstadter + Mitchel 1988)
-;; - HDC computing interpreters, one idea is using non-deterministic finite state automata,
+;; - HDC interpreters:
+;;   one idea is using non-deterministic finite state automata,
 ;;   perhaps the presence of an element in the sequence can be an instruction to the interpreter
 ;;   and so forth.
 ;; - I feel like there must be a flow control implementation by selecting one of possible trajectories,
 ;;   where the trajectories represent process paths.
 ;;   I.e. 'collapsing' the non-deterministic finite state automata into one of it's possible states,
 ;; - I feel that the flow control primitives of such a framework should allow for branches to be
-;;   interpreted in superposition, this would be 'computing in superposition' way.
+;;   interpreted in superposition, this would be the 'computing in superposition' way.
 ;;
 ;;
 ;;
@@ -821,14 +856,13 @@
 ;;
 ;;
 ;; - i.e. the 'b' of triangle domain is allowed to be analogous to the subsequence starting with 'j' in alphabet domain.
-;; - the terminal sequences get order, by being mapped to the smaller traingle world.
-;;
+;; - the terminal sequences get order, by being mapped to the smaller triangle world.
 ;;
 ;;
 ;; - snippets of trajectories could perhaps stand for action sequences
 ;; - my vision is something that commposes trajectories and mappings
 ;;
-;; - So a computational system that works by juggleling trajectories and mappings between trajectories,
+;; - Roughly, a computational system that works by juggleling trajectories and mappings between trajectories,
 ;;   juxtoposing them and concatenating them, then computing generilized continuations, and somehow collapsing them.
 ;; - One cool thing is that with hdc, the elements are allowed to be sequences, trees, finite-state automatons etc themself (see data.clj).
 ;;
@@ -842,12 +876,16 @@
 ;;
 ;;   You will need composite actions for this to be useful.
 ;;
+;; - Combining this with higher order trajectory analogies (mappings), this starts looking like a way to make 'grammer', where the action terminals are syntax,
+;;   And the higher order sequences constrain the syntax.
+;; - And in this framework, action trajectories, grammers, and analogy structures would be the same thing.
+;;
 ;;
 ;;
 ;; - how to have on-the-fly mappings? It sounds like exactly the problem you solve with neuronal ensembles glueing together temporarily
 ;; - similar to fast-weights [Hinton], synapsembles [Buzsáki], the excitability ensembles of Yuste
 ;; - the problem is reminiscent of 'working memory' or 'scratchpad'
-;; - Putting such ideas together, I will try make an element called a 'glue space'.
+;; - My idea is to try model an element called a 'glue space'.
 ;; - A glue space can be wiped (killed), created (then fresh). Can be used as autoassocitive or heteroassociate memory.
 ;; - Optionally, it's a sequence memory.
 ;; - I can implement such a glue space with a temporary SDM.

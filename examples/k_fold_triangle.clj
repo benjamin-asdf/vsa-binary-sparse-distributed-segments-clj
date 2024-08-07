@@ -15,9 +15,12 @@
 
 
 ;; -----------------------------------
-;; See triangle_world.clj.
-;; (this is V2)
+;; Series:
+;; 1) triangle_world.clj.
+;; 2) k_fold_triangle.clj
+;; 3) platonic-alphabet-v1
 ;;
+
 
 ;; -----------------------------------
 ;; - Use a similar architecture, but k-fold memory

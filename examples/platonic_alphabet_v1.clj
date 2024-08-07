@@ -23,6 +23,7 @@
 ;; this is with segment count = 20 btw
 ;; with 100 there are other tradeoffs with memory, similarity etc.
 
+
 ;; ----------------------------------------
 ;; platonic-alphabet is similar to triangle world, but more elements and not circular.
 ;;

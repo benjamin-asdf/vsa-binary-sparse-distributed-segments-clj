@@ -677,7 +677,7 @@
 ;; ----------------------------------------
 ;; 👉 with a 'known world' (analogy source) stored in an SDM at hand, a mapping - lookup - mapping
 ;;    is a way of analogical reasoning, using the 'structure' of the source.
-;;    One hunch that many people had is that cognition is making something like these mappings on the fly,
+;;    One hunch of cognitive scientists is cognition is making something like these mappings on the fly,
 ;;    presumably hierachical, or overlapping and so forth.
 ;;
 ;;

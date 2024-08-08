@@ -1,9 +1,9 @@
-High dimensional computing is a great approach to neuromorphic, neurosymbolic computing.
+High-dimensional computing is a great approach to neuromorphic, neurosymbolic computing.
 
 * Sparse Binary Vectors
 
-Brain networks exhibit sparse pattern activity, which is the motivation to explore high dimensional computing with sparse vectors.
-Sparse VSA architectures have been show to have competitive capacity and desirable HDC properties.[fn:1]
+Brain networks exhibit sparse pattern activity, which is the motivation to explore high-dimensional computing with sparse vectors.
+Sparse VSA architectures have been shown to have competitive capacity and desirable HDC properties.[fn:1]
 At the same time, they can be represented with drastically less memory consumption.
 
 Blog post:
@@ -17,20 +17,20 @@ Following the paper [[https://www.researchgate.net/publication/299535938_High-Di
 ** Datastructures / "Programming in Superposition"
 
 Following [[https://arxiv.org/abs/2106.05268][Vector Symbolic Architectures as a Computing Framework for Emerging Hardware]], I made some example
-complex datastructures.
+complex data structures.
 
 [[file:/src/bennischwerdtner/hd/data.clj]]
 
 Sets, Sequences, Stacks, Graphs, Trees, Finite State Automaton.
 
-Perhaps HDC/VSA's most distinguished aspect is '*programing in superposition*'.
-The HDC/VSA set is basically a bloom filter, but it is not limited to sets. Via VSA we can represent structured data.
+Perhaps HDC/VSA's most distinguished aspect is '*programming in superposition*'.
+The HDC/VSA set is a bloom filter, but it is not limited to sets. Via VSA we can represent structured data.
 
-(I highly recommend the literature if you are interested, this is not a tutorial, but exploring a software level perspective on excisting work).
+(I highly recommend the literature if you are interested, this is not a tutorial, but exploring a software-level perspective on existing work).
 
-Here, finite state automata are represented as a superpostion of transitions.
+Here, finite state automata are represented as a superposition of transitions.
 One can query with a superposition state, making it a nondeterministic finite-state automaton.
-In effect, running all it's possible transitions in parallel.
+In effect, running all its possible transitions in parallel.
 
 [[file:./examples][examples]] contains examples and expirements.
 
@@ -185,7 +185,7 @@ It is somewhat suggestive though, the primitives of a hyper interpreter might ha
 
 *** Fun With Trees
 
-[[file:examples/fun_with_trees.clj]] contains a bit of a walk through of some 'programing in superposition' concepts.
+[[file: examples/fun_with_trees.clj]] contains a bit of a walkthrough of some 'programming in superposition' concepts.
 
 *** Hyper-If
 
@@ -251,21 +251,43 @@ But making *some* kind of Lisp interpreter gave me at least training with using 
 
 This was a quick way for me to implement a gpu version, making this reasonably fast.
 
-
 ** Python setup
 
-- Set up a python env, and run clojure using this env.
-- I achieve this here with python venv  and the scripts activate.sh, run.sh and dev.el
+- Set up a Python env, and run Clojure using this env.
 
+- requirements:
+  PyTorch
+  NumPy
 
-- requirments:
-  pytorch
-  numpy
+- Here is how I do that:
 
 - `python -m venv venv`
 - `. ./activate.sh`
-- `pip install pytorch numpy`
-- start cider via dev.el, or start clojure via run.sh, or tell your tooling to use run.sh as clojure program
+- `pip install PyTorch numpy`
+- start cider via dev.el, or start Clojure via run.sh, or tell your tooling to use run.sh as Clojure program
+
+* Fun With SDM And Analogies, How To Use 'Known Worlds'
+
+** Series
+
+- [[file:src/examples/analogy_arc/triangle_world.clj][Triangle World]]
+- [[file:src/examples/analogy_arc/k_fold_triangle.clj][K-Fold Triangle]]
+- [[file:src/examples/analogy_arc/platonic-alphabet-v1][Platonic Alphabet V1]]
+- [[file:src/examples/analogy_arc/what_is_the_abc_that_starts_with_j.clj][The ABC That Starts With J]]
+- [[file:src/examples/analogy_arc/tiny_if_abc_got_changed_to_abd_then_what_happenend_to_jkl.clj][ABC got changed to ABD, what happenend to JKL?]]
+
+** Copycat
+
+[[https://en.wikipedia.org/wiki/Copycat_(software)][Copycat]] [Mitchel and Hofstadter 1988] is an analogical reasoning software solving the copycat domain.
+A world where strings of letters of the alphabet exist.
+
+Suppose 'abc' was changed to 'abd', what happened to 'jkl' that makes it say "the same happened to me!"?
+
+One of my goals is a hyper cat, a hyper-dimensional copy of the copycat.
+
+Along the way, I got to use my SDM, programming in superposition, and what 'analogical' programming could be.
+It's fun to me.
+
 
 
 * Acknowledgements

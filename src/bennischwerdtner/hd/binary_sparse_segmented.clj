@@ -48,43 +48,26 @@
 
 (def default-opts
   "Default opts for (binary sparse distributed, segmented) BSDC-SEG vector operations."
+  #_(let [dimensions (long 1e4)
+          ;; Rachkovskij (2001) showed that this value
+          ;; works well, therefore we use it
+          density-probability (/ 1 (fm/sqrt dimensions))
+          ;; segment count == non-zero bits count
+          segment-count (long (* dimensions
+                                 density-probability))]
+      {:bsdc-seg/N dimensions
+       :bsdc-seg/density-probability density-probability
+       :bsdc-seg/segment-count segment-count
+       :bsdc-seg/segment-length (/ dimensions
+                                   segment-count)})
+  ;; I started enjoying the daringness of making this
+  ;; 20
   (let [dimensions (long 1e4)
-        ;; Rachkovskij (2001) showed that this value
-        ;; works well, therefore we use it
-        density-probability (/ 1 (fm/sqrt dimensions))
-        ;; segment count == non-zero bits count
-        segment-count (long (* dimensions
-                               density-probability))]
+        segment-count 20]
     {:bsdc-seg/N dimensions
-     :bsdc-seg/density-probability density-probability
      :bsdc-seg/segment-count segment-count
      :bsdc-seg/segment-length (/ dimensions
                                  segment-count)}))
-
-
-(comment
-  ;; I started enjoying the daringness of making this
-  ;; 20
-  (alter-var-root #'default-opts
-                  (constantly
-                   (let [dimensions (long 1e4)
-                         segment-count 20]
-                     {:bsdc-seg/N dimensions
-                      :bsdc-seg/segment-count segment-count
-                      :bsdc-seg/segment-length
-                      (/ dimensions segment-count)})))
-
-  #_(alter-var-root #'default-opts
-                  (constantly
-                   (let [dimensions (long 1e5)
-                         segment-count
-                         1000
-                         ;; (Math/sqrt (long 1e5))
-                         ]
-                     {:bsdc-seg/N dimensions
-                      :bsdc-seg/segment-count segment-count
-                      :bsdc-seg/segment-length
-                      (/ dimensions segment-count)}))))
 
 
 (defn ->empty

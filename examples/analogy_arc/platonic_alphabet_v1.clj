@@ -14,16 +14,6 @@
               [tech.v3.datatype.argops :as dtype-argops]
               [bennischwerdtner.hd.data :as hdd]))
 
-;; -----------------------------------
-;; Series:
-;; 1) triangle_world.clj.
-;; 2) k_fold_triangle.clj
-;; 3) platonic-alphabet-v1
-;;
-;; this is with segment count = 20 btw
-;; with 100 there are other tradeoffs with memory, similarity etc.
-
-
 ;; ----------------------------------------
 ;; platonic-alphabet is similar to triangle world, but more elements and not circular.
 ;;
@@ -874,8 +864,11 @@
 ;;
 ;;   Thus, I see this as a 'analogy structure', right now that doesn't do much, but you see that [:right :right :right] would produce
 ;;   abc in the 'a' domain and jkl in the 'j' domain.
+;;   (Id did exactly this at what_is_the_abc_that_starts_with_j.clj)
 ;;
 ;;   You will need composite actions for this to be useful.
+;;
+;;
 ;;
 ;; - Combining this with higher order trajectory analogies (mappings), this starts looking like a way to make 'grammer', where the action terminals are syntax,
 ;;   And the higher order sequences constrain the syntax.

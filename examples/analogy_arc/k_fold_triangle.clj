@@ -14,13 +14,6 @@
             [bennischwerdtner.hd.data :as hdd]))
 
 
-;; -----------------------------------
-;; Series:
-;; 1) triangle_world.clj.
-;; 2) k_fold_triangle.clj
-;; 3) platonic-alphabet-v1
-;;
-
 
 ;; -----------------------------------
 ;; - Use a similar architecture, but k-fold memory

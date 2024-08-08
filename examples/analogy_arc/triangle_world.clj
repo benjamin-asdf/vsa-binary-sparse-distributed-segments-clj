@@ -14,6 +14,21 @@
    [tech.v3.datatype.argops :as dtype-argops]
    [bennischwerdtner.hd.data :as hdd]))
 
+;; -----------------------------------
+;; Series:
+;; 1) triangle_world.clj.
+;; 2) k_fold_triangle.clj
+;; 3) platonic-alphabet-v1
+;; 4) what_is_the_abc_that_starts_with_j.clj
+;; 5) tiny_if_abc_got_changed_to_abd_then_what_happenend_to_jkl.clj
+
+;; this is with segment count = 20 btw
+;; with 100 there are other tradeoffs with memory, similarity etc.
+
+
+;; ------------------------------------
+
+
 ;; - The triangle world is a finite state automaton with three states
 ;;   #{a, b, c}
 ;; - 2 input symbols
@@ -436,7 +451,9 @@
 
 
 ;; ----------------------------------------
-;; Basic 'analogy fabric'
+;; Basic 'analogy fabric' (Suggestion)
+;;
+;;
 ;;
 ;; - this is very simplistic, but that is often the point in software engineering,
 ;;   being able to keep the overview, until the system is sophisticated, yet it's simplicity and
@@ -451,30 +468,36 @@
 ;;                              +-----------------+
 ;;                              |                 |
 ;;                              |        ^        |   target domain
-;;                              +--------+--------+
-;;                                       |
-;;                              +--------+--------+
-;;                              |                 |   'surfaces'  - (proposed, left out here for the moment for simplicity)
-;;                              |                 |   for instance specifying only a subset of transitions possible.
-;;                              +-----------------+   tolerating a mix with another analogy and so forth
-;;                                       ^            (constraints and tolerations, or 'slippages' [Mitche and Hofstadter 1988])
-;;                                       |
-;;                                       |
-;;                                       | mapping
-;;                                       |
-;;                                       |
-;;                                       |
-;;                                 +-----v------+
-;;                                 |            |    'essences'
-;;                                 |            |
-;;                                 |            |
-;;                                 |            |
-;;                                 |            |
-;;                                 +------------+
-;;                                   known world
-;;                                 (e.g. 'triangle world)
+;;                              +--------+--------+                                                                                       --+
+;;                                       |                                                                                                  |
+;;                              +--------+--------+                                                                                         |
+;;                              |                 |   'surfaces'  - (proposed, left out here for the moment for simplicity)                 |
+;;                              |                 |   for instance specifying only a subset of transitions possible.                        | supposedly more dynamic
+;;                              +-----------------+   tolerating a mix with another analogy and so forth                                    |
+;;                                       ^            (constraints and tolerations, or 'slippages' [Mitchel and Hofstadter 1988])           |
+;;                                       |                                                                                                  |
+;;                                       |                                                                                                  |
+;;                                       | mapping    (role filler mapping)                                                                 |
+;;                                       |                                                                                                  |
+;;                                       |                                                                                                  |
+;;                                       |                                                                                               ---+
+;;                                 +-----v------+                                                                                        ---+
+;;                                 |            |    'essences', 'frames'                                                                   |
+;;                                 |            |                                                                                           | supposedly more static
+;;                                 |            |    'analogy structure'                                                                    | 'long term'
+;;                                 |            |    (roles and their relationships)                                                        |
+;;                                 |            |                                                                                           |
+;;                                 +------------+                                                                                           |
+;;                                   known world                                                                                            |
+;;                                 (e.g. 'triangle world)                                                                                ---+
 ;;
 ;;
+;;
+;;
+;;
+;; - My idea is that traingle world *is* an essence.
+;; - mapping and surfaces are left to be figured out
+;; - + a system that uses such analogies
 ;;
 ;;
 
@@ -482,20 +505,20 @@
 ;; probably not how crop-rotation works.
 
 #_(def crop-rotation-world
-  {
-   [:fallow :next] :crop
-   [:crop :next] :legume
-   [:legume :next] :fallow
-   [:fallow :previous] :legume
-   [:crop :previous] :crop
-   [: :left] :b})
+    {
+     [:fallow :next] :crop
+     [:crop :next] :legume
+     [:legume :next] :fallow
+     [:fallow :previous] :legume
+     [:crop :previous] :crop
+     [: :left] :b})
 
 ;; got bored typing. That's what the analogy is for!
 
 
 
 
-;; The mapping
+;; The mapping - Explorations
 ;; ------------------------
 
 ;;
@@ -677,7 +700,7 @@
 ;; ----------------------------------------
 ;; 👉 with a 'known world' (analogy source) stored in an SDM at hand, a mapping - lookup - mapping
 ;;    is a way of analogical reasoning, using the 'structure' of the source.
-;;    One hunch of cognitive scientists is cognition is making something like these mappings on the fly,
+;;    A common hunch is that cognition software is creating something like these mappings on the fly,
 ;;    presumably hierachical, or overlapping and so forth.
 ;;
 ;;
@@ -692,22 +715,18 @@
 ;; - Functions as a non-deterministic finite state automaton, with generalized states.
 ;; - Querying with a destination state is possible (both ways).
 ;; - Query results are allowed superpositions of outcomes
-;;   (fitting right witht the generilized query nature)
-;; - Triangle world demands this capability. There are multiple paths per destination.
+;;   (fitting right with the generalized query nature)
+;; - Triangle world actually needs this capability. There are multiple paths per destination.
 ;;
 ;;
-;; - I Did not flesh out the abstractions, but explored what it could mean to use an existing
+;; - I did not flesh out the abstractions, but explored what it could mean to use an existing
 ;;   learned world model as 'structure' for analogy making
 ;;   dubbed 'known world', usually called the source (vs target) of an analogy.
 ;;
 ;; - The source domains prototypical symbols can be seen as roles,
 ;; - The 'mapping' would fill the roles with fillers
 ;; - In this scheme, the role-filler binding would be done as wrapper,
-;;   with the 'source structure' running pristinely so to say.
-;;
-;;
-;;
-;;
+;;   with the 'source structure' running 'pristinely' so to say.
 ;;
 ;;
 ;; - Next, one can use k-fold memory for higher order sequences

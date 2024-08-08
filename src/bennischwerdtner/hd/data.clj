@@ -1278,11 +1278,13 @@
   given `input`.
 
   Note that the roles of source and input can be swapped.
-`
+  `
   This is used as the element of [[finite-state-automaton]].
   "
-  [[source input destination]]
-  (hd/bind* [source input (hd/permute destination)]))
+  ([[source input destination]]
+   (transition source input destination))
+  ([source input destination]
+   (hd/bind* [source input (hd/permute destination)])))
 
 (defn finite-state-automaton-1
   "Creates a new finite state automaton containing `transitions`

@@ -74,20 +74,90 @@
 (defn cleanup [q] (m-cleanup *item-memory* q))
 (defn cleanup* [q] (m-cleanup* *item-memory* q))
 
+(defn clj->vsa*-1
+  [obj]
+  (cond (hd/hv? obj) obj
+        (set? obj) (apply hd/superposition
+                          (map clj->vsa* obj))
+        (map? obj) (apply hd/superposition
+                          (map (fn [[k v]]
+                                 (hd/bind (clj->vsa* k)
+                                          (clj->vsa* v)))
+                               obj))
+        (sequential? obj) (map clj->vsa* obj)
+        :else (clj->vsa obj)))
+
+
+(declare clj->vsa*)
+
+(defn clj->vsa*-fish-impl
+  ([op & args]
+   (let [dir ({:< -1 :<< -2 :> 1 :>> 2} op)]
+     (case (count args)
+       1 (hd/permute-n (clj->vsa* (first args)) (* dir 1))
+       ;; not sure
+       ;; (map-indexed (fn [i e] (hd/permute-n e (* dir
+       ;; i)))
+       ;;              (map clj->vsa* args))
+       ))))
+
+(defn clj->vsa*-magic-unbind-impl
+  [args]
+  ;; action ⊙ source -> destination
+  (let [[automaton a s d] args]
+    (cond (= :_ a) (clj->vsa* [:. automaton s [:> d]])
+          (= :_ s) (clj->vsa* [:. automaton a [:> d]])
+          (= :_ d) (clj->vsa* [:< [:. automaton a s]]))))
+
+
+;; potentially make a dsl like:
+;;
 (defn clj->vsa*
+  "Returns hdvs according to clj->vsa* dsl.
+
+  Not documented, you need to look at the code.
+  This is experimental, use [[clj->vsa*-1]] if you don't want it.
+
+  Look at the rich comment at the bottom of data.clj.
+
+
+  "
   [obj]
   (cond
+    ;; (= :_ obj) obj
+    (vector? obj)
+      (case (first obj)
+        :+ (apply hd/superposition
+             (map clj->vsa* (rest obj)))
+        :* (hd/bind* (map clj->vsa* (rest obj)))
+        :. (hd/unbind (clj->vsa* (second obj))
+                      (hd/bind* (map clj->vsa*
+                                  (drop 2 obj))))
+        :> (apply clj->vsa*-fish-impl obj)
+        :< (apply clj->vsa*-fish-impl obj)
+        :>> (apply clj->vsa*-fish-impl obj)
+        :<< (apply clj->vsa*-fish-impl obj)
+        :**>
+          ;; [[transition]]
+          (let [[a b c] (rest obj)]
+            (hd/bind* [(clj->vsa* a) (clj->vsa* b)
+                       (hd/permute (clj->vsa* c))]))
+        :*.< (clj->vsa*-magic-unbind-impl (rest obj))
+        ;; ~[[bound-seq]]
+        :*> (hd/bind* (map-indexed
+                        (fn [i e] (hd/permute-n e i))
+                        (map clj->vsa* (rest obj))))
+        ;; :+> (clj->vsa* [:+ [:> (second obj)] (nth obj 2)])
+        (map clj->vsa* obj))
     (hd/hv? obj) obj
     (set? obj) (apply hd/superposition (map clj->vsa* obj))
-    (map? obj) (apply
-                hd/superposition
-                (map (fn [[k v]]
-                       (hd/bind (clj->vsa* k)
-                                (clj->vsa* v)))
-                     obj))
+    (map? obj) (apply hd/superposition
+                 (map (fn [[k v]]
+                        (hd/bind (clj->vsa* k)
+                                 (clj->vsa* v)))
+                   obj))
     (sequential? obj) (map clj->vsa* obj)
     :else (clj->vsa obj)))
-
 
 
 ;; ----------------
@@ -447,7 +517,14 @@
 (defn bound-seq-conj
   "Returns a new hdv repsenting the bound seq with `e` added."
   [hxs e]
-  (hd/superposition e (hd/permute hxs)))
+  ;; is the same as making a new tuple:
+  ;; (bound-seq [e hxs])
+  (hd/bind e (hd/permute hxs)))
+
+
+
+
+
 
 (comment
   ;; The usage of a bound seq seems at first contrived,
@@ -456,18 +533,18 @@
   ;; (below)
   ;;
   (assert (= (cleanup* (hd/permute-inverse
-                         (hd/unbind (bound-seq (map clj->vsa
-                                                 [:a :b]))
-                                    (clj->vsa :a))))
+                        (hd/unbind (bound-seq (map clj->vsa
+                                                   [:a :b]))
+                                   (clj->vsa :a))))
              '(:b)))
   (assert (= (cleanup* (hd/unbind
-                         (bound-seq (map clj->vsa [:a :b]))
-                         (hd/permute (clj->vsa :b))))
+                        (bound-seq (map clj->vsa [:a :b]))
+                        (hd/permute (clj->vsa :b))))
              '(:a)))
   (assert (empty? (cleanup*
-                    (hd/unbind
-                      (bound-seq (map clj->vsa [:a :b :c]))
-                      (hd/permute (clj->vsa :b)))))))
+                   (hd/unbind
+                    (bound-seq (map clj->vsa [:a :b :c]))
+                    (hd/permute (clj->vsa :b)))))))
 
 
 
@@ -1567,4 +1644,127 @@
   ;; 1. have prototype roles for the symbols
   ;; 2. Find superpositions of symbol roles (perhaps using [[hd/thin]])
   ;;
+  )
+
+
+(comment
+  (cleanup* (clj->vsa* [:+ :a :b]))
+  '(:a :b)
+  (cleanup* (clj->vsa* [:. [:* :a :b] :b]))
+  (:a)
+  (cleanup* (clj->vsa* [:. [:* :a :b :c] :b :c]))
+  '(:a)
+  (cleanup* (clj->vsa* [:< :b]))
+  '()
+  (cleanup* (clj->vsa* [:< [:> :b]]))
+  '(:b)
+  (cleanup* (clj->vsa* [:. [:*> :a :b :c] [:> :b]
+                        [:> [:> :c]]]))
+  '(:a)
+  (cleanup* (clj->vsa* [:<
+                        [:+ [:*> :a :b :c] [:> :b]
+                         [:> [:> :c]]]]))
+  '(:b)
+  (= (clj->vsa* [:* :c [:+ :a :b]])
+     (clj->vsa* [:+ [:* :a :c] [:* :b :c]]))
+  (hd/similarity (clj->vsa* [:+ [:* :a :c] [:* :b :c]])
+                 (clj->vsa* [:* :c [:+ :a :b]]))
+  1.0
+  (cleanup* (clj->vsa* [:. [:* :c [:+ :a :b]] :c]))
+  '(:a :b)
+  (hd/similarity
+   ;; (clj->vsa*
+   ;;  [:+ [:* :a :c] [:* :b :c]])
+   ;; (clj->vsa*
+   ;;  [:* :c [:+ :a :b]])
+   (hd/superposition
+    (hd/bind* [(clj->vsa* :a) (clj->vsa* :c)])
+    (hd/bind* [(clj->vsa* :b) (clj->vsa* :c)]))
+   (hd/bind* [(clj->vsa* :c)
+              (hd/superposition (clj->vsa* :a)
+                                (clj->vsa* :b))]))
+  1.0
+  (hd/similarity (clj->vsa* [:+ [:* :a :c] [:* :b :c]])
+                 ;; (clj->vsa*
+                 ;;  [:* :c [:+ :a :b]])
+                 (hd/bind* [(clj->vsa* :c)
+                            (hd/superposition (clj->vsa* :a)
+                                              (clj->vsa*
+                                               :b))]))
+  1.0
+  (cleanup* (automaton-source (clj->vsa* [:**> :a :s :d])
+                              (clj->vsa* :a)
+                              (clj->vsa* :d)))
+  '(:s)
+
+  ;; [:*.< automaton :a :s :d]
+
+  (cleanup* (clj->vsa* [:*.< [:**> :a :s :d] :_ :s :d]))
+  '(:a)
+  (cleanup* (clj->vsa* [:*.< [:**> :a :s :d] :a :_ :d]))
+  '(:s)
+  (cleanup* (clj->vsa* [:*.< [:**> :a :s :d] :a :s :_]))
+  '(:d)
+
+  (let [automaton [:+
+                   [:**> :a :s :d]
+                   [:**> :b :s :d]]]
+    (cleanup* (clj->vsa* [:*.< automaton :_ :s :d])))
+  '(:a :b)
+
+
+  (let [automaton [:+
+                   [:**> :a :s :d]
+                   [:**> :b :s :d]]]
+    (cleanup* (clj->vsa* [:*.< automaton :a :s :_])))
+  '(:d)
+
+
+  (let [automaton [:+
+                   [:**> :a :s :d]
+                   [:**> :b :s :d]]]
+    (cleanup* (clj->vsa* [:*.< automaton (hd/drop (clj->vsa* :a) 0.5) :s :_])))
+  '(:d)
+
+
+  (let [tree-1
+        (apply tree*
+               (clj->vsa* [[[:left :left :left] :a]
+                           [[:left :right :left] :b]]))
+        tree-2 (clj->vsa*
+                [:+
+                 {[:*> :left :left :left] :a}
+                 {[:*> :left :right :left] :b}])
+        tree-3
+        (clj->vsa*
+         [:+
+          [:* [:*> :left :left :left] :a]
+          [:* [:*> :left :right :left] :b]])]
+    (= tree-3 tree-2 tree-1))
+  true
+
+
+
+  ;; is all the same stuff of course:
+  (let [a (hd/->seed)]
+    (= (clj->vsa* :b)
+       (hd/unbind (clj->vsa* [:* a :b]) a)))
+  true
+  (= (bound-seq-conj
+      (bound-seq (clj->vsa* [:a :b :c]))
+      (clj->vsa* :d))
+     (clj->vsa* [:* :d [:> [:*> :a :b :c]]])
+     (clj->vsa* [:* [:> [:*> :a :b :c]] :d]))
+
+
+
+  ;; well, whatever I guess
+  ;; They would look cute but who can type it without emacs mode
+  [:⊙ :a :b]
+  [:⊘]
+  [:⊕]
+  ;; they look like happpy aliens with mouths
+  ;;
+
+
   )

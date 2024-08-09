@@ -525,11 +525,6 @@
   ;; (bound-seq [e hxs])
   (hd/bind e (hd/permute hxs)))
 
-
-
-
-
-
 (comment
   ;; The usage of a bound seq seems at first contrived,
   ;; but these constraints are useful for representing
@@ -1662,8 +1657,15 @@
   '()
   (cleanup* (clj->vsa* [:< [:> :b]]))
   '(:b)
-  (cleanup* (clj->vsa* [:. [:*> :a :b :c] [:> :b]
+  (cleanup* (clj->vsa* [:.
+                        [:*> :a :b :c]
+                        [:> :b]
                         [:> [:> :c]]]))
+  '(:a)
+  (cleanup* (clj->vsa* [:.
+                        [:*> :a :b :c]
+                        [:> :b]
+                        [:>> :c]]))
   '(:a)
   (cleanup* (clj->vsa* [:<
                         [:+ [:*> :a :b :c] [:> :b]
@@ -1747,18 +1749,19 @@
     (= tree-3 tree-2 tree-1))
   true
 
-
-
   ;; is all the same stuff of course:
   (let [a (hd/->seed)]
     (= (clj->vsa* :b)
        (hd/unbind (clj->vsa* [:* a :b]) a)))
   true
+
   (= (bound-seq-conj
       (bound-seq (clj->vsa* [:a :b :c]))
       (clj->vsa* :d))
      (clj->vsa* [:* :d [:> [:*> :a :b :c]]])
      (clj->vsa* [:* [:> [:*> :a :b :c]] :d]))
+  true
+
 
 
 

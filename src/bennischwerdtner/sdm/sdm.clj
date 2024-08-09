@@ -1089,7 +1089,6 @@
 
 ;; -----------------------
 
-
 ;; Version 3:
 ;;
 ;; K fold memory
@@ -1099,8 +1098,8 @@
 ;;
 ;; (T is the dataset, like everything the machine encounters).
 ;;
-;; - kth-Order Transition: 'A sequence occuring in xs(T) is a busbsequence of xt(T) of length k + 1
-;;   For example [a,b,c,d] is a third-order transition; it says that the three-element seqqquence [a,b,c] is followed
+;; - kth-Order Transition: 'A sequence occuring in xs(T) is a subsequence of xt(T) of length k + 1
+;;   For example [a,b,c,d] is a third-order transition; it says that the three-element sequence [a,b,c] is followed
 ;;   by d.'
 ;;
 ;; - j-Step Transition:
@@ -1122,7 +1121,7 @@
 ;;   The jth memory, sdm-j[j] is also referred to as the jth fold.
 ;;
 ;; - k-fold Data:
-;;   The k-fold data at time T, D(T), are the multiset of the datta available at time T.
+;;   The k-fold data at time T, D(T), are the multiset of the data available at time T.
 ;;
 ;; - k-fold prediction:
 ;;   To summarize (vaguely):

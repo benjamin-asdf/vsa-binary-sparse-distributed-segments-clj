@@ -60,7 +60,11 @@
                                 :v v})
                              @m)))))
     (m-cleanup-verbose [this q]
-      (m-cleanup-verbose this q 0.1))
+      ;; 0.18 checked around a little with segment-count = 20 this seems to be
+      ;; very far apart
+      ;; You quickly need cleanup memories for this stuff
+      ;;
+      (m-cleanup-verbose this q 0.18))
     (m-cleanup [this q] (first (m-cleanup* this q)))
     (m-cleanup* [this q]
       (map :k (m-cleanup-verbose this q))))

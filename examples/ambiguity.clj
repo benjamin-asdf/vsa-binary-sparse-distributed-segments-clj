@@ -5,6 +5,8 @@
    [tech.v3.datatype.functional :as f]))
 
 
+
+
 ;; ------------------------
 ;; Ambiguity primitives *** WIP ***
 ;; ----------------------
@@ -18,10 +20,12 @@
 ;;
 ;; - 'without' can be replaced with set difference
 ;; - mix only works well when you work with small amont of seed vectors. (thinnig quickly loses signal strenght)
-;; - you probably want to use the set functions generally instead
-;; - vanishingly, roughly, mostly, impossibly, nothing, everything, non-sense make sense conceptually
-;;   but perhaps I can find an alternative to 'thin' the whole thing.
-;; - something more like alternative set functions, expanding the vacubulary 'union', 'difference' to include mix-states
+;; - you probably want to use the set functions generally instead.
+;; - vanishingly, roughly, mostly, impossibly, nothing, everything, non-sense make sense I think.
+;;   I wonder if there is a kind of "set language" that includes them.
+;; - vanishingly is conceptually the same thing as the intersection with a (relatively large) subspace of hyperspace.
+;; - moslty and roughly are definend in terms of it
+;;
 ;; - would be interesting to program in superposition, utilizing ambiguity
 ;;
 

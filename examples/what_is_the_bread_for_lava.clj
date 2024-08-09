@@ -46,6 +46,7 @@
                     [:vulcano :erupt {:spew lava}]
                     [:rocks :forget {:rocks :ancient}]])))
 
+
 ;; what is the bread for lava?
 
 ;; first ask what is the action I would do with lava and bread,
@@ -58,6 +59,8 @@
    (hdd/clj->vsa* :bread)
    (hd/permute (hdd/clj->vsa* {:surface lava})))))
 '(:spread)
+
+
 ;; the essential mechanism for this is at fun_with_trees.clj
 
 (let
@@ -80,7 +83,8 @@
        ;; an item memory
        ;; (literature mentions this as challange.
        ;; Resonator networks can do this efficiently)
-       ;; ----- cleanup to :spread
+       ;; --------------------------------------------
+       ;; cleanup to prestine :spread
        (hdd/clj->vsa
         (hdd/cleanup
          the-action-that-would-lead-to-lava-surface-given-a-bread))

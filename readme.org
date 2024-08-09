@@ -270,11 +270,11 @@ This was a quick way for me to implement a gpu version, making this reasonably f
 
 ** Series
 
-- [[file:src/examples/analogy_arc/triangle_world.clj][Triangle World]]
-- [[file:src/examples/analogy_arc/k_fold_triangle.clj][K-Fold Triangle]]
-- [[file:src/examples/analogy_arc/platonic-alphabet-v1][Platonic Alphabet V1]]
-- [[file:src/examples/analogy_arc/what_is_the_abc_that_starts_with_j.clj][The ABC That Starts With J]]
-- [[file:src/examples/analogy_arc/tiny_if_abc_got_changed_to_abd_then_what_happenend_to_jkl.clj][ABC got changed to ABD, what happenend to JKL?]]
+- [[file:/examples/analogy_arc/triangle_world.clj][Triangle World]]
+- [[file:/examples/analogy_arc/k_fold_triangle.clj][K-Fold Triangle]]
+- [[file:/examples/analogy_arc/platonic-alphabet-v1][Platonic Alphabet V1]]
+- [[file:/examples/analogy_arc/what_is_the_abc_that_starts_with_j.clj][The ABC That Starts With J]]
+- [[file:/examples/analogy_arc/tiny_if_abc_got_changed_to_abd_then_what_happenend_to_jkl.clj][ABC got changed to ABD, what happenend to JKL?]]
 
 ** Copycat
 

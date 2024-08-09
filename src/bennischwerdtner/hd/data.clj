@@ -186,7 +186,7 @@
 (def multiset set)
 (def union set)
 ;;
-;; (... this disregard for what a whole and what are elemnts is typcial for programing in superposition)
+;; (... this disregard for what a whole and what are elemnts is typical for programing in superposition)
 ;;
 
 

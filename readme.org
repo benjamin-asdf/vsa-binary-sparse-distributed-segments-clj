@@ -6,7 +6,7 @@ Brain networks exhibit sparse pattern activity, which is the motivation to explo
 Sparse VSA architectures have been shown to have competitive capacity and desirable HDC properties.[fn:1]
 At the same time, they can be represented with drastically less memory consumption.
 
-Blog post:
+[[https://faster-than-light-memes.xyz/high-dimensional-computing-with-sparse-vectors.html][Blog post]]
 
 ** HDV/VSA implementation
 
@@ -285,9 +285,9 @@ Suppose 'abc' was changed to 'abd', what happened to 'jkl' that makes it say "th
 
 One of my goals is a hyper cat, a hyper-dimensional copy of the copycat.
 
-Along the way, I got to use my SDM, programming in superposition, and what 'analogical' programming could be.
+This is very early and tiny at the moment.
+So far, I got to use my SDM, programming in superposition, and what 'analogical' programming could be.
 It's fun to me.
-
 
 
 * Acknowledgements

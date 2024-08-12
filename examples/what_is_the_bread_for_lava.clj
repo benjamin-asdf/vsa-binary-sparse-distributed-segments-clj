@@ -94,7 +94,13 @@
  :spread-lava-in-bread+lava-domain '(:rocks :bread)]
 
 
+
+
+
+
 ;; -----------------------------------------------------------
+
+
 
 
 ;;
@@ -386,6 +392,33 @@ true
           {:bread {:surface butter :thin? true}}]]))))
 
 
+
+;; -----------------------------------------------------------
+;; Update: Using clj->vsa* dsl
+
+(let
+  [the-action-that-would-lead-to-lava-surface-given-a-bread
+     (hdd/clj->vsa*
+      [:*.< bread-domain :bread :_ {:surface lava}])]
+  [:spread-lava-in-bread-domain
+   (hdd/cleanup*
+    (hdd/clj->vsa*
+     [:*.< bread-domain :_ the-action-that-would-lead-to-lava-surface-given-a-bread
+      {:surface lava}]))
+   :spread-lava-in-bread+lava-domain
+   (hdd/cleanup*
+    (hdd/clj->vsa*
+     [:*.<
+      [:+ bread-domain lava-domain]
+      :_
+      (hdd/clj->vsa (hdd/cleanup the-action-that-would-lead-to-lava-surface-given-a-bread))
+      {:surface lava}]))])
+
+'[:spread-lava-in-bread-domain (:bread)
+  :spread-lava-in-bread+lava-domain (:rocks :bread)]
+
+;; ... Arguably not better, lol
+;;
 
 
 

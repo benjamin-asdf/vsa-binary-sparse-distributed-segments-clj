@@ -29,18 +29,37 @@
   ([tens] (ensure-torch tens *torch-device*))
   ([tens torch-device]
    (cond (dtt/tensor? tens)
-         (let [t-numpy (numpy/zeros [(count tens)]
-                                    :dtype
-                                    numpy/float32)]
-           (dtt/tensor-copy! tens
-                             (dtt/ensure-tensor t-numpy))
-           (torch/tensor t-numpy
-                         :dtype torch/float32
-                         :device torch-device))
+           (let [tens (dtt/ensure-native tens)
+                 t-numpy (numpy/zeros
+                           (:shape (dtt/tensor->dimensions
+                                     tens))
+                           :dtype
+                           numpy/float32)]
+             (dtt/tensor-copy! tens
+                               (dtt/ensure-tensor t-numpy))
+             (torch/tensor t-numpy
+                           :dtype torch/float32
+                           :device torch-device))
          (= (py/python-type tens) :tensor) tens)))
 
 (defn torch-memory-size
   [t]
   (* (py.. t (element_size)) (py.. t (numel))))
 
-(defn torch->jvm [tens] (py.. tens (to "cpu") (numpy)))
+(defn ensure-cpu [tens]
+  (py.. tens (to "cpu")))
+
+(defn torch->numpy [tens]
+  (py.. tens (numpy)))
+
+(defn torch->jvm
+  [torch-tensor]
+  (-> torch-tensor
+      ensure-cpu
+      torch->numpy
+      dtt/ensure-tensor))
+
+(defn ensure-jvm [tens]
+  (if (dtt/tensor? tens)
+    tens
+    (torch->jvm tens)))

@@ -1,19 +1,19 @@
 (ns bennischwerdtner.sdm.sdm
   (:require
-   [clojure.set :as set]
-   [bennischwerdtner.pyutils :as pyutils :refer [*torch-device*]]
-   [bennischwerdtner.hd.binary-sparse-segmented :as hd]
-   [tech.v3.datatype.functional :as f]
-   [tech.v3.datatype :as dtype]
-   [tech.v3.tensor :as dtt]
-   [tech.v3.datatype.bitmap :as bitmap]
-   [fastmath.random :as fm.rand]
-   [fastmath.core :as fm]
-   [tech.v3.datatype.unary-pred :as unary-pred]
-   [tech.v3.datatype.argops :as dtype-argops]
-   [libpython-clj2.require :refer [require-python]]
-   [libpython-clj2.python.ffi :as py-ffi]
-   [libpython-clj2.python :refer [py. py.. py.-] :as py]))
+    [clojure.set :as set]
+    [bennischwerdtner.pyutils :as pyutils :refer
+     [*torch-device*]]
+    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
+    [tech.v3.datatype.functional :as f]
+    [tech.v3.datatype :as dtype]
+    [tech.v3.tensor :as dtt]
+    [tech.v3.datatype.bitmap :as bitmap]
+    [fastmath.random :as fm.rand]
+    [fastmath.core :as fm]
+    [tech.v3.datatype.unary-pred :as unary-pred]
+    [libpython-clj2.require :refer [require-python]]
+    [libpython-clj2.python.ffi :as py-ffi]
+    [libpython-clj2.python :refer [py. py.. py.-] :as py]))
 
 ;;
 ;; This is a sparse distributed memory for binary sparse segmented hypervectors
@@ -208,11 +208,11 @@
   ;; Anything backed by a :native-buffer has a zero
   ;; copy pathway to and from numpy.
   ;; Https://clj-python.github.io/libpython-clj/Usage.html
-  (alter-var-root #'hd/default-opts
-                  (fn [m]
-                    (assoc m
-                           :tensor-opts {:container-type
-                                         :native-heap})))
+  (alter-var-root # 'hd/default-opts
+                    (fn [m]
+                      (assoc m
+                             :tensor-opts {:container-type
+                                           :native-heap})))
   (require-python '[numpy :as np])
   (require-python '[torch :as torch])
   (require-python '[torch.sparse :as torch.sparse])
@@ -222,6 +222,8 @@
 
 ;; https://pytorch.org/docs/stable/sparse.html#sparse-csr-tensor
 ;; The primary advantage of the CSR format over the COO format is better use of storage and much faster computation operations such as sparse matrix-vector multiplication using MKL and MAGMA backends.
+;; (I ended up using coo at the moment. It was easier to create and use tensors).
+;;
 
 (defn ->address-matrix
   [address-count address-length density]
@@ -487,14 +489,17 @@
 
 (defn ensure-cpu [tens]
   (py.. tens (to "cpu")))
+
 (defn torch->numpy [tens]
   (py.. tens (numpy)))
+
 (defn torch->jvm
   [torch-tensor]
   (-> torch-tensor
       ensure-cpu
       torch->numpy
       dtt/ensure-tensor))
+
 (defn ensure-jvm [tens]
   (if (dtt/tensor? tens)
     tens
@@ -538,7 +543,7 @@
               segment1, ....
 
              top-k per segment       s0,s1,... the summed counter 'winning' values for each segment.
-                                     The bit counter content amount contributing to the result is a confident meassure.
+                                     The bit counter content amount contributing to the result is a confidence meassure.
                  |
                  |
                  v
@@ -1354,6 +1359,23 @@
                                [address-locations])))))
 
 
+(defn update-delay-table
+  "Moves time forward by rotating the delay table and zeroing out the new column.
+
+  `k-steps`: How often to move, this is ~ to saying how
+  much time steps pass.
+
+  Doesn't support negative time.
+  "
+  ([delay-table] (update-delay-table delay-table 1))
+  ([delay-table k-steps]
+   (py..
+     (torch/roll delay-table (- k-steps))
+     (index_fill_
+       1
+       (torch/arange (- k-steps) 0 :device *torch-device*)
+       false))))
+
 ;; -----------
 ;; unit tests
 ;; -----------
@@ -1394,24 +1416,6 @@
                (range k-steps))))]
     (assert (torch/equal (update-delay-table t 2)
                          (update-delay-table-1 t 2))))))
-
-
-(defn update-delay-table
-  "Moves time forward by rotating the delay table and zeroing out the new column.
-
-  `k-steps`: How often to move, this is ~ to saying how
-  much time steps pass.
-
-  Doesn't support negative time.
-  "
-  ([delay-table] (update-delay-table delay-table 1))
-  ([delay-table k-steps]
-   (py..
-     (torch/roll delay-table (- k-steps))
-     (index_fill_
-       1
-       (torch/arange (- k-steps) 0 :device *torch-device*)
-       false))))
 
 ;; -----------------------
 ;; Delayed Address Decoder

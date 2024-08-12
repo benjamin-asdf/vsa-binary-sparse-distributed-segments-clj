@@ -1453,3 +1453,140 @@
 
 
   )
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;; ----------------------------------------------------
+;; codebook decoding
+
+(def a (hd/->seed))
+
+(let
+    [vocabulary-matrix
+     (py.. (torch/ge (torch/tensor (/ 20 (long 1e4))
+                                   :device
+                                   *torch-device*)
+                     (torch/randn [10 (long 1e4)]
+                                  :device
+                                  *torch-device*))
+       (to :dtype torch/float16))]
+    (torch/argmax (torch/mv vocabulary-matrix
+                            (py.. (pyutils/ensure-torch a)
+                              (to :dtype
+                                  torch/float16)))))
+
+
+(torch/argmax (torch/randn [4 4]) :dim 1)
+
+(torch/argmax (torch/randn [4]))
+
+(time (dotimes [n 10000]
+        (hd/->seed)))
+;; "Elapsed time: 211.294884 msecs"
+
+(defn preallocated-vocabulary
+  [n]
+  (dtt/->tensor (repeatedly n hd/->seed) :datatype :int8))
+
+(:shape (dtt/tensor->dimensions (preallocated-vocabulary 100)))
+
+(time (let [alphabet-jvm (preallocated-vocabulary 1000)
+            codebook-matrix (py.. (pyutils/ensure-torch
+                                    alphabet-jvm)
+                                  (to :dtype torch/float16))
+            a (rand-nth vocab-jvm)]
+        (torch/select
+          codebook-matrix
+          0
+          (torch/argmax
+            (torch/mv vocabulary-matrix
+                      (py.. (pyutils/ensure-torch a)
+                        (to :dtype torch/float16)))))))
+
+(let [alphabet-jvm (preallocated-vocabulary 1000)
+      codebook-matrix (py.. (pyutils/ensure-torch
+                              alphabet-jvm)
+                            (to :dtype torch/float16))]
+  (def alphabet-jvm alphabet-jvm))
+
+
+
+;; ----------------------------------
+;;
+;; Resonator network
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+;; --------------------------------------------
+;; Neuronal Ensemble Area
+;;
+
+;; 1. Random directed graph, log distributed (Buzsáki)
+;;
+;; 2. Learning rule: Intrinsic excitability (Yuste)
+;;
+;; 3. Inhibition model?
+;; - top-k per segment (modeling sheet inhibition)
+;; - long range inhibition? model recruitment of basket cells?
+;;

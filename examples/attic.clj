@@ -1,8 +1,57 @@
+(comment
+  (def x-reportior (hdd/clj->vsa* #{:left :right}))
+  (def y-reportior (hdd/clj->vsa* #{[:> :left 1] [:> :right 1]}))
+  (def z-reportior (hdd/clj->vsa* #{[:> :left 2] [:> :right 2]}))
+
+  (def s (hdd/clj->vsa* [:*> :left :right :left]))
+
+  (hd/bind*
+   [(hdd/clj->vsa* [:*> :left :right :left])
+    (hdd/clj->vsa* :a)])
+
+  (f/sum
+   (hdd/clj->vsa* [:*> :left :right :left]))
+
+  (f/sum
+   (hd/bind*
+    [(hdd/clj->vsa* [:*> :left :right :left])
+     (hdd/clj->vsa* :a)]))
+
+  ;;
+  ;; the 'problem' here is that the bind essentially thins,
+  ;; dropping down the contribution of everything in the sumset
+  ;;
+  (f/sum (hd/bind* [z-reportior y-reportior]))
+  100.0
+
+  ;; the resultant hdv, now has 1/4th of the info for [:left 1], etc.
+
+
+  (hd/unbind s (hd/bind* [z-reportior y-reportior]))
+  ;; ~ x-reportior
+
+  (hd/similarity
+   x-reportior
+   (hd/unbind s (hd/bind* [z-reportior y-reportior])))
+  0.26
+  ;; I guess because of some symmetry, we come to 1/4th here, too
+  ;; this overlap comes from the 1/4th [:left] contribution
+  ;;
+
+
+
+  )
+
+
+
+
+
 ;; ---------------------------------
 ;; Showing that this really has to do with 'liquid':
 ;;
 ;; this actually ends up unbing with 'nothing', which is identiy
 ;;
+
 
 (def tofifee-domain
   (hdd/clj->vsa* {:ground :caramel :surface :chocolate}))

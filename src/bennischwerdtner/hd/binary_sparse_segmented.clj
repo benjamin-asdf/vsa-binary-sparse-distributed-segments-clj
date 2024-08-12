@@ -146,8 +146,6 @@
 ;;
 
 
-
-
 (defn ->hv
   "
   Returns a fresh, random hypervector - the element of VSA.
@@ -245,12 +243,12 @@
 
   See [[unit-vector-n]].
   "
-
   ([a n] (permute-block-local-n a n default-opts))
   ([a n {:bsdc-seg/keys [segment-length segment-count N]}]
    (-> a
        (dtt/reshape [segment-count segment-length])
-       (dtt/map-axis (fn [segment] (dtt/rotate segment [n])))
+       (dtt/map-axis (fn [segment]
+                       (dtt/rotate segment [n])))
        (dtt/reshape [N]))))
 
 (defn permute

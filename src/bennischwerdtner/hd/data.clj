@@ -1,15 +1,18 @@
 (ns bennischwerdtner.hd.data
   (:refer-clojure :exclude [replace set peek pop])
-  (:require
-   [tech.v3.datatype.functional :as f]
-   [tech.v3.datatype :as dtype]
-   [tech.v3.tensor :as dtt]
-   [tech.v3.datatype.bitmap :as bitmap]
-   [fastmath.random :as fm.rand]
-   [fastmath.core :as fm]
-   [bennischwerdtner.hd.binary-sparse-segmented :as hd]
-   [tech.v3.datatype.unary-pred :as unary-pred]
-   [tech.v3.datatype.argops :as dtype-argops]))
+  (:require [tech.v3.datatype.functional :as f]
+            [tech.v3.datatype :as dtype]
+            [tech.v3.tensor :as dtt]
+            [tech.v3.datatype.bitmap :as bitmap]
+            [fastmath.random :as fm.rand]
+            [fastmath.core :as fm]
+            [bennischwerdtner.hd.binary-sparse-segmented :as
+             hd]
+            [tech.v3.datatype.unary-pred :as unary-pred]
+            [tech.v3.datatype.argops :as dtype-argops]
+            [bennischwerdtner.hd.prot :refer
+             [ItemMemory m-clj->vsa m-cleanup m-cleanup*
+              m-cleanup-verbose]]))
 
 
 ;; Literature:
@@ -35,39 +38,31 @@
 
 ;; tiny item memory
 
-(defprotocol ItemMemory
-  (m-clj->vsa [this item])
-  (m-cleanup-verbose [this q]
-                     [this q threshold])
-  (m-cleanup [this q])
-  (m-cleanup* [this q]
-    [this q threshold]))
-
 (defrecord TinyItemMemory [m]
   ItemMemory
-    (m-clj->vsa [this item]
-      (or (@m item)
-          ((swap! m assoc item (hd/->seed)) item)))
-    (m-cleanup-verbose [this q threshold]
-      (filter (comp #(<= threshold %) :similarity)
-        (sort-by :similarity
-                 #(compare %2 %1)
-                 (into []
-                       (pmap (fn [[k v]]
-                               {:k k
-                                :similarity
-                                  (hd/similarity v q)
-                                :v v})
-                             @m)))))
-    (m-cleanup-verbose [this q]
-      ;; 0.18 checked around a little with segment-count = 20 this seems to be
-      ;; very far apart
-      ;; You quickly need cleanup memories for this stuff
-      ;;
-      (m-cleanup-verbose this q 0.18))
-    (m-cleanup [this q] (first (m-cleanup* this q)))
-    (m-cleanup* [this q]
-      (map :k (m-cleanup-verbose this q))))
+  (m-clj->vsa [this item]
+    (or (@m item)
+        ((swap! m assoc item (hd/->seed)) item)))
+  (m-cleanup-verbose [this q threshold]
+    (filter (comp #(<= threshold %) :similarity)
+            (sort-by :similarity
+                     #(compare %2 %1)
+                     (into []
+                           (pmap (fn [[k v]]
+                                   {:k k
+                                    :similarity
+                                    (hd/similarity v q)
+                                    :v v})
+                                 @m)))))
+  (m-cleanup-verbose [this q]
+    ;; 0.18 checked around a little with segment-count = 20 this seems to be
+    ;; very far apart
+    ;; You quickly need cleanup memories for this stuff
+    ;;
+    (m-cleanup-verbose this q 0.18))
+  (m-cleanup [this q] (first (m-cleanup* this q)))
+  (m-cleanup* [this q]
+    (map :k (m-cleanup-verbose this q))))
 
 (def ^:dynamic *item-memory* (->TinyItemMemory (atom {})))
 
@@ -82,13 +77,13 @@
   [obj]
   (cond (hd/hv? obj) obj
         (set? obj) (apply hd/superposition
-                          (map clj->vsa* obj))
+                          (map clj->vsa*-1 obj))
         (map? obj) (apply hd/superposition
                           (map (fn [[k v]]
-                                 (hd/bind (clj->vsa* k)
-                                          (clj->vsa* v)))
+                                 (hd/bind (clj->vsa*-1 k)
+                                          (clj->vsa*-1 v)))
                                obj))
-        (sequential? obj) (map clj->vsa* obj)
+        (sequential? obj) (map clj->vsa*-1 obj)
         :else (clj->vsa obj)))
 
 
@@ -99,11 +94,7 @@
    (let [dir ({:< -1 :<< -2 :> 1 :>> 2} op)]
      (case (count args)
        1 (hd/permute-n (clj->vsa* (first args)) (* dir 1))
-       ;; not sure
-       ;; (map-indexed (fn [i e] (hd/permute-n e (* dir
-       ;; i)))
-       ;;              (map clj->vsa* args))
-       ))))
+       2 (hd/permute-n (clj->vsa* (first args)) (* dir (second args)))))))
 
 (defn clj->vsa*-magic-unbind-impl
   [args]
@@ -124,7 +115,6 @@
 
   Look at the rich comment at the bottom of data.clj.
 
-
   "
   [obj]
   (cond
@@ -133,7 +123,15 @@
       (case (first obj)
         :+ (apply hd/superposition
              (map clj->vsa* (rest obj)))
+        ;; :∪ :∩
+        :- (let [a (clj->vsa* (nth obj 1))
+                 sets (map (clj->vsa* (drop 2 obj)))]
+             (dtt/->tensor
+               (f/< 0 (f/- a (apply hd/superposition sets)))
+               :datatype
+               :int8))
         :* (hd/bind* (map clj->vsa* (rest obj)))
+        ;; should maybe be :/
         :. (hd/unbind (clj->vsa* (second obj))
                       (hd/bind* (map clj->vsa*
                                   (drop 2 obj))))
@@ -151,7 +149,12 @@
         :*> (hd/bind* (map-indexed
                         (fn [i e] (hd/permute-n e i))
                         (map clj->vsa* (rest obj))))
-        ;; :+> (clj->vsa* [:+ [:> (second obj)] (nth obj 2)])
+        :?= (hd/similarity (clj->vsa* (nth obj 1))
+                           (clj->vsa* (nth obj 2)))
+        :?? (cleanup* (clj->vsa* (nth obj 1)))
+        :-- (hd/drop (clj->vsa* (nth obj 1)) (nth obj 2))
+        ;; :+> (clj->vsa* [:+ [:> (second obj)] (nth
+        ;; obj 2)])
         (map clj->vsa* obj))
     (hd/hv? obj) obj
     (set? obj) (apply hd/superposition (map clj->vsa* obj))
@@ -162,6 +165,7 @@
                    obj))
     (sequential? obj) (map clj->vsa* obj)
     :else (clj->vsa obj)))
+
 
 
 ;; ----------------
@@ -1772,6 +1776,163 @@
   [:⊕]
   ;; they look like happpy aliens with mouths
   ;;
+
+
+  )
+
+
+(comment
+
+  ;; still mostly similar to b
+  (hd/similarity
+   (clj->vsa* :b)
+   (clj->vsa*
+    [:* :b (hd/drop (clj->vsa* :a) 0.75)]))
+  0.8
+
+  ;; so you can move something into another domain, but only a little bit.
+
+
+  (clj->vsa*
+   [:?= :b
+    [:* :b [:-- :a 0.75]]])
+
+
+  ;; unbinding with a gives me a little bit of b
+  (clj->vsa*
+   [:?= :b
+    [:. [:* :b [:-- :a 0.75]] :a]])
+
+  (let [coords {:bottom (clj->vsa* :bottom)
+                :left (clj->vsa* :left)
+                :right (clj->vsa* :right)
+                :top (clj->vsa* :top)}]
+    (let [[x y]
+          ;; x, y
+          [0 0]
+          encode-position (fn [[x y]]
+                            (clj->vsa*
+                             [:+
+                              ;; drop 0 (x) from top
+                              [:-- :top y] [:-- :left x]
+                              [:-- :right (- 1 x)]
+                              [:-- :bottom (- 1 y)]]))
+          ;;
+          ;; the resultant encoding has 0 right, 0
+          ;; bottom,
+          ;; 1 top and 1 left
+          ;; can be called 'top-left corner'
+          field (clj->vsa*
+                 [:+ [:* :banana (encode-position [0 0])]
+                  [:* :orange (encode-position [0.5 0.5])]
+                  [:* :triangle (encode-position [1 0.5])]
+                  [:* :bloogy
+                   (encode-position [(rand) (rand)])]
+                  [:* :blerp
+                   (encode-position [(rand) (rand)])]])]
+      ;; where is the banana?
+      ;; in the top left corner
+      (map (fn [item] [item
+                       (into {}
+                             (map (fn [[k hv]] [k
+                                                (clj->vsa*
+                                                 [:?= hv
+                                                  [:. field
+                                                   item]])])
+                                  coords))])
+           [:banana :orange :triangle :square])))
+
+
+  '(
+    [:banana {:bottom 0.0 :left 0.6 :right 0.0 :top 0.45}]
+    [:orange {:bottom 0.3 :left 0.2 :right 0.4 :top 0.25}]
+    [:triangle {:bottom 0.2 :left 0.0 :right 0.7 :top 0.15}]
+    [:square {:bottom 0.0 :left 0.05 :right 0.05 :top 0.0}])
+
+  ;; square is nowhere, correct.
+  ;;
+  ;; triangle is only 0.15 top?
+  ;;
+
+
+  ;;
+  ;; I feel like this must be approximately equal to population vectors
+  ;;
+
+
+  ;; other way around, ask what is at pos x
+
+  (let [coords {:bottom (clj->vsa* :bottom)
+                :left (clj->vsa* :left)
+                :right (clj->vsa* :right)
+                :top (clj->vsa* :top)}]
+    (let [[x y]
+          ;; x, y
+          [0 0]
+          encode-position (fn [[x y]]
+                            (clj->vsa*
+                             [:+
+                              ;; drop 0 (x) from top
+                              [:-- :top y] [:-- :left x]
+                              [:-- :right (- 1 x)]
+                              [:-- :bottom (- 1 y)]]))
+          ;;
+          ;; the resultant encoding has 0 right, 0
+          ;; bottom,
+          ;; 1 top and 1 left
+          ;; can be called 'top-left corner'
+          field (clj->vsa*
+                 [:+ [:* :banana (encode-position [0 0])]
+                  [:* :orange (encode-position [0.5 0.5])]
+                  [:* :triangle (encode-position [1 0.5])]
+                  [:* :bloogy
+                   (encode-position [(rand) (rand)])]
+                  [:* :blerp
+                   (encode-position [(rand) (rand)])]])]
+      ;; what is in the top left corner? They are all
+      ;; sort of in the top left corner not bad, consider
+      ;; that being on the field means your are a little
+      ;; in the top-left corner
+      ;;
+      ;; the banana is the thing that is most in the top
+      ;; left corner
+      ;; (the output of cleanup* is sorted)
+      [(clj->vsa* [:?? [:. field (encode-position [0 0])]])
+       ;; what is in the center? Actually this also asks
+       ;; 'what is in the field?'
+       (clj->vsa* [:??
+                   [:. field (encode-position [0.5 0.5])]])]))
+
+  '[(:banana :blerp :orange :bloogy)
+    (:orange :blerp :triangle :bloogy :banana)]
+
+  ;; an orange and a blerp. Classic.
+  ;; (is of course not deterministic, blerp and bloogy are all over the place)
+  ;;
+
+
+
+
+  ;; ---------------
+
+  ;; The cogntive backdrop is the idea that 'eye movement motor data' 'bound' with 'sensor data'
+  ;; encodes a visual field.
+  ;;
+  ;; Maybe you would find:
+  ;; - eye movemnt population vectors encoding positions of objects in visual field
+  ;; - Simultanagnosia, if any of the components is broken
+  ;; - micro saccades whenever the sytem is representing the position of an object
+  ;; - 1. micro saccades would come for the ride (although causility is circular) when paying attention to an obj.
+  ;; - 2. perhaps there would be, depending on the amount of objects represented?
+
+  )
+
+
+
+
+(comment
+
+
 
 
   )

@@ -82,39 +82,32 @@
         (m-cleanup-verbose [this q]
           (m-cleanup-verbose this q 0.18))
         (m-cleanup-verbose [this q threshold]
-          (time (let [{:keys [idxs sims]}
-                        (codebook-cleanup-verbose
-                          codebook-matrix
-                          q
-                          threshold)]
-                  (map (fn [hd sim]
-                         {:k (get @lut hd)
-                          :similarity sim
-                          :v hd})
-                    (dtt/select pool idxs)
-                    sims))))
+          (let [{:keys [idxs sims]}
+                  (codebook-cleanup-verbose codebook-matrix
+                                            q
+                                            threshold)]
+            (map (fn [hd sim]
+                   {:k (get @lut hd) :similarity sim :v hd})
+              (dtt/select pool idxs)
+              sims)))
         (m-cleanup [this q]
-          (get
-           @lut
-           (nth pool
-                (py. (torch/argmax
-                      (torch/mv
-                       codebook-matrix
-                       (py.. (pyutils/ensure-torch q)
-                         (to :dtype torch/float16))))
-                    item))))
+          (get @lut
+               (nth pool
+                    (py. (torch/argmax
+                           (torch/mv
+                             codebook-matrix
+                             (py.. (pyutils/ensure-torch q)
+                                   (to :dtype
+                                       torch/float16))))
+                         item))))
         (m-cleanup* [this q threshold]
           (map :k (m-cleanup-verbose this q threshold)))
-      (m-cleanup* [this q] (m-cleanup* this q 0.18)))))
+        (m-cleanup* [this q] (m-cleanup* this q 0.18)))))
 
 
 (comment
   (def m (codebook-item-memory 10))
   (prot/m-cleanup-verbose m (prot/m-clj->vsa m :foo) 0.2))
-
-
-
-
 
 
 (comment (torch/argmax

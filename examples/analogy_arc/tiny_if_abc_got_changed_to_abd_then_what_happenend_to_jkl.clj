@@ -18,6 +18,12 @@
 ;;
 ;; Followup of what-is-the-abc-that-starts-with-j
 ;;
+;;
+;; 👉 it's possible I just had luck. I updated what-is-the-abc-that-starts-with-j after tyring a second time.
+;; This is exploratory / example anyway
+;;
+
+;;
 ;; --------------------------------------------------------------------------------------------
 ;; If abc got changed to abd, what happenend to jkl when it says 'exactly that happenend to me!' ?
 ;; --------------------------------------------------------------------------------------------

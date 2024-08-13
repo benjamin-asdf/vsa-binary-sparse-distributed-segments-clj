@@ -1,5 +1,7 @@
 High-dimensional computing is a great approach to neuromorphic, neurosymbolic computing.
 
+This software licensed as GNU GPLv3.
+
 * Sparse Binary Vectors
 
 Brain networks exhibit sparse pattern activity, which is the motivation to explore high-dimensional computing with sparse vectors.

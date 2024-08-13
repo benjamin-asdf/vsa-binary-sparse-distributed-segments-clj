@@ -1,19 +1,13 @@
 (ns bennischwerdtner.sdm.sdm
   (:require
-    [clojure.set :as set]
-    [bennischwerdtner.pyutils :as pyutils :refer
+   [bennischwerdtner.pyutils :as pyutils :refer
      [*torch-device*]]
     [bennischwerdtner.hd.binary-sparse-segmented :as hd]
     [tech.v3.datatype.functional :as f]
-    [tech.v3.datatype :as dtype]
     [tech.v3.tensor :as dtt]
-    [tech.v3.datatype.bitmap :as bitmap]
     [fastmath.random :as fm.rand]
-    [fastmath.core :as fm]
-    [tech.v3.datatype.unary-pred :as unary-pred]
     [libpython-clj2.require :refer [require-python]]
-    [libpython-clj2.python.ffi :as py-ffi]
-    [libpython-clj2.python :refer [py. py.. py.-] :as py]))
+    [libpython-clj2.python :refer [py. py..] :as py]))
 
 ;;
 ;; This is a sparse distributed memory for binary sparse segmented hypervectors
@@ -140,7 +134,7 @@
 ;;
 ;;
 
-(comment
+#_(comment
   ;; what is p?
   ;; depends on the M the hard locations count,
   ;; density of the address matrix
@@ -172,7 +166,6 @@
   ;; One can simply setup an address decoder and empircally play until one finds a good config
   ;; where good means the address-locations decoded are roughly p = (address-locations / M) = idea-p = 2MT^-1/3
   ;;
-
 
   ;;
   ;; I do this by playing around with such numbers:
@@ -208,7 +201,7 @@
   ;; Anything backed by a :native-buffer has a zero
   ;; copy pathway to and from numpy.
   ;; Https://clj-python.github.io/libpython-clj/Usage.html
-  (alter-var-root # 'hd/default-opts
+  (alter-var-root #'hd/default-opts
                     (fn [m]
                       (assoc m
                              :tensor-opts {:container-type
@@ -732,7 +725,7 @@
             top-k)))))
 
 (defn ->sdm-storage-coo
-  [{:keys [address-count word-length address-density]}]
+  [{:keys [address-count word-length]}]
   (let [content-matrix (->content-matrix-coo address-count
                                              word-length)]
     (reify
@@ -790,25 +783,23 @@
     (range (or max-steps 7))))
 
 (defn sparse-sdm
-  [{:as opts
-    :keys [address-count word-length address-density
-           decoder]}]
+  [{:as opts :keys [decoder]}]
   (let [decoder (or decoder (->decoder-coo opts))
         storage (->sdm-storage-coo opts)]
     (reify
       SDM
-      (write [this address content decoder-threshold]
-        (write-1 storage
-                 (decode-address decoder
-                                 address
-                                 decoder-threshold)
-                 content))
-      (lookup [this address top-k decoder-threshold]
-        (lookup-1 storage
-                  (decode-address decoder
-                                  address
-                                  decoder-threshold)
-                  top-k)))))
+        (write [this address content decoder-threshold]
+          (write-1 storage
+                   (decode-address decoder
+                                   address
+                                   decoder-threshold)
+                   content))
+        (lookup [this address top-k decoder-threshold]
+          (lookup-1 storage
+                    (decode-address decoder
+                                    address
+                                    decoder-threshold)
+                    top-k)))))
 
 (def ->sdm sparse-sdm)
 
@@ -1600,9 +1591,9 @@
         (lookup-xs k-fold-memory (first xs2) 2)))
 
   (similarities xs1 res2)
-  (0.0 0.0 1.0 0.0)
+  '(0.0 0.0 1.0 0.0)
   (similarities xs2 res2)
-  (1.0 1.0 1.0 1.0)
+  '(1.0 1.0 1.0 1.0)
 
   ;; ... success.
 
@@ -1635,7 +1626,8 @@
       :address-density 0.00003
       :k-delays 6
       :stop? (fn [acc next-outcome]
-               (or ;; (when (diverging?
+               (or
+                ;; (when (diverging?
                 ;; acc
                 ;; next-outcome)
                 ;;   :diverging)
@@ -1697,27 +1689,27 @@
 (comment
   (def T (into [] (repeatedly 1e3 #(hd/->hv))))
   (binding [*torch-device* :cuda]
-    (do (def k-fold-memory
-          (->k-fold-memory
-            ;; note the tiny sdm.
-            {:address-count (long 1e5)
-             :address-density 0.00003
-             :k-delays 6
-             :stop? (fn [acc next-outcome]
-                      (when (< (:confidence next-outcome) 0.05)
-                        :low-confidence))
-             :word-length (long 1e4)}))
-        (time (doseq [t-seq (take 1000 t-sequences)]
-                (reset k-fold-memory)
-                (write-xs! k-fold-memory (map T t-seq) 1)))
-        (def outcome
-          (time (doall (for [t-seq (take 1000 t-sequences)]
-                         (do (reset k-fold-memory)
-                             (similarities
-                               (map T t-seq)
-                               (lookup-xs k-fold-memory
-                                          (T (first t-seq))
-                                          1)))))))))
+    (def k-fold-memory
+      (->k-fold-memory
+       ;; note the tiny sdm.
+       {:address-count (long 1e5)
+        :address-density 0.00003
+        :k-delays 6
+        :stop? (fn [acc next-outcome]
+                 (when (< (:confidence next-outcome) 0.05)
+                   :low-confidence))
+        :word-length (long 1e4)}))
+    (time (doseq [t-seq (take 1000 t-sequences)]
+            (reset k-fold-memory)
+            (write-xs! k-fold-memory (map T t-seq) 1)))
+    (def outcome
+      (time (doall (for [t-seq (take 1000 t-sequences)]
+                     (do (reset k-fold-memory)
+                         (similarities
+                          (map T t-seq)
+                          (lookup-xs k-fold-memory
+                                     (T (first t-seq))
+                                     1))))))))
   ;; filter where last element is not 1.0 similar to
   ;; the input
   '(0.05 0.0 0.05 0.05 0.05)

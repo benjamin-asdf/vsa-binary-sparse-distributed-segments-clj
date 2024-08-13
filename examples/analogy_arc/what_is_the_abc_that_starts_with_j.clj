@@ -11,7 +11,14 @@
             [bennischwerdtner.pyutils :as pyutils]
             [tech.v3.datatype.unary-pred :as unary-pred]
             [tech.v3.datatype.argops :as dtype-argops]
-            [bennischwerdtner.hd.data :as hdd]))
+            [bennischwerdtner.hd.data :as hdd]
+            [bennischwerdtner.hd.codebook-item-memory :as codebook]))
+
+
+(alter-var-root
+ #'hdd/*item-memory*
+ (constantly (codebook/codebook-item-memory 1000)))
+
 
 ;; -----------------------------------
 ;; Series:
@@ -58,6 +65,10 @@
                   (reverse alphabet)
                   (drop 1 (reverse alphabet))))))
 
+
+
+
+
 ;;
 ;; a right -> b
 ;; a left -> 'nothing' (but 'a' because of update-world implementation)
@@ -67,8 +78,8 @@
 
 (defn ->memory
   []
-  (sdm/->sdm {:address-count (long 1e5)
-              :address-density 0.00003
+  (sdm/->sdm {:address-count (long 1e6)
+              :address-density 0.000003
               :word-length (long 1e4)}))
 
 (defn remember [sdm addr content]
@@ -90,7 +101,11 @@
 (comment
   (def m (->memory))
   (remember m (hdd/clj->vsa* :foo) (hdd/clj->vsa* :foo))
-  (hdd/cleanup* (recover m (hd/drop (hdd/clj->vsa* :foo) 0.8) 1)))
+  (hdd/cleanup* (recover m (hd/drop (hdd/clj->vsa* :foo) 0.8) 1))
+  ;; (for [n (range 1000)]
+  ;;   (let [n (hdd/clj->vsa* n)]
+  ;;     (remember m n n)))
+  )
 
 
 
@@ -101,7 +116,7 @@
   (hdd/->TinyItemMemory
    (atom {:left (hdd/clj->vsa :left) :right (hdd/clj->vsa :right)})))
 
-(def cleanup-action #(hdd/m-cleanup actions-item-memory %))
+(def cleanup-action #(prot/m-cleanup actions-item-memory %))
 
 (def actions [:left :right])
 
@@ -114,71 +129,56 @@
   (world [state action] state))
 
 ;; ---------------------------------------
-;; explorer system
-;;
-;; I can scrap the explorer for the simple approach:
-;;
-;; I. Create a finite-state automaton, update an sdm with transition triplets.
-;;
+;; explorer system (not needed, world is easily enumerated)
 
-(defn alphabet-finite-state-automaton-play-states
-  [alphabet]
-  (let [actions-xs
+;;
+#_(defn alphabet-finite-state-automaton-play-states
+    [alphabet]
+    (let [actions-xs
           (cycle (concat
-                   (repeat (+ 2 (count alphabet)) :right)
-                   (repeat (+ 2 (count alphabet)) :left)))]
-    (reductions
-      (fn [{:keys [world]} action]
-        (let [next-world (update-world world action)]
-          {:transition [world action next-world]
-           :world next-world}))
-      {:world :a}
-      (take (long (* 2.5 (count alphabet))) actions-xs))))
+                  (repeat (+ 2 (count alphabet)) :right)
+                  (repeat (+ 2 (count alphabet)) :left)))]
+      (reductions
+       (fn [{:keys [world]} action]
+         (let [next-world (update-world world action)]
+           {:transition [world action next-world]
+            :world next-world}))
+       {:world :a}
+       (take (long (* 6 (count alphabet))) actions-xs))))
 
 ;; -------------------------------------------
 
 (def m
   (let [m (->memory)]
-    (doseq
-      [transition
-         (map (comp hdd/transition hdd/clj->vsa*)
-           (keep
-             :transition
-             (alphabet-finite-state-automaton-play-states
-              alphabet)))]
-      (remember m transition transition))
+    (doseq [[state action destination] (map hdd/clj->vsa* (map (fn [[[s a] d]] [s a d]) world))]
+      (let [transition (hdd/transition [state action destination])]
+        (remember m transition transition)
+        (remember m (hdd/clj->vsa* [:* state action]) destination)
+        (remember m state state)))
     m))
 
 (let [result-automaton
-        (recover m
-                 (hdd/union
-                   (hdd/clj->vsa* {{:a #{:right :left}}
-                                     (hd/permute
-                                       (hdd/clj->vsa :b))})
-                   (hdd/clj->vsa* {{:b #{:right :left}}
-                                     (hd/permute
-                                       (hdd/clj->vsa :c))}))
-                 2)]
-  [(hdd/m-cleanup actions-item-memory
-                  (hdd/automaton-source result-automaton
-                                        (hdd/clj->vsa :a)
-                                        (hdd/clj->vsa :b)))
-   (hdd/m-cleanup actions-item-memory
-                  (hdd/automaton-source result-automaton
-                                        (hdd/clj->vsa :b)
-                                        (hdd/clj->vsa
+      (recover m
+               (hdd/union
+                (hdd/clj->vsa*
+                 {{:a #{:right :left}} (hd/permute (hdd/clj->vsa :b))})
+                (hdd/clj->vsa* {{:b #{:right :left}}
+                                (hd/permute
+                                 (hdd/clj->vsa :c))}))
+               2)]
+  [(prot/m-cleanup actions-item-memory
+                   (hdd/automaton-source result-automaton
+                                         (hdd/clj->vsa :a)
+                                         (hdd/clj->vsa :b)))
+   (prot/m-cleanup actions-item-memory
+                   (hdd/automaton-source result-automaton
+                                         (hdd/clj->vsa :b)
+                                         (hdd/clj->vsa
                                           :c)))])
 [:right :right]
 
-
-;; ...
-;; recovering a non deterministic finite state automaton from the sdm by querying in superposition
-;; and retrieving multiple values per key
-;;
-
-
-(defn what-is-the-abc-that-starts-with-j
-  [abc j]
+(defn find-action-structure
+  [abc]
   (let [result-automaton
           (recover m
                    ;; query for the full automaton
@@ -195,75 +195,145 @@
           ;; use the automaton to find the transitions
           ;; between input seq
           (map (fn [a b]
-                 (hdd/m-cleanup actions-item-memory
-                                (hdd/automaton-source
-                                  result-automaton
-                                  (hdd/clj->vsa a)
-                                  (hdd/clj->vsa b))))
+                 (prot/m-cleanup actions-item-memory
+                                 (hdd/automaton-source
+                                   result-automaton
+                                   (hdd/clj->vsa a)
+                                   (hdd/clj->vsa b))))
             abc
             (drop 1 abc))]
-    ;; use action seq and start symbol to generate from
-    ;; the automaton triplets in the memory.
-    ;; (at this point a sequence memory would be handy)
-    ;;
-    ;; (this problem is rather trivial given the
-    ;; previous installments of this series)
+    action-structure))
+
+;; this is slow (fixed with gpu codebook impl)
+(defn ensure-clj [e]
+  (if (hd/hv? e)
+    (hdd/cleanup e)
+    e))
+
+;; quite trivial since it's in the memory
+(defn generate-in-j-domain
+  [action-structure j]
+  (map ensure-clj
     (reductions
-      (fn [j action]
-        (some->
-          (recover m
-                   ;; querying with superposition
-                   (hd/bind* [(hdd/clj->vsa* j)
-                              (hdd/clj->vsa* action)
-                              ;; That's so swag c'mon
-                              (hd/permute
-                               (hdd/clj->vsa*
-                                (into #{} alphabet)))])
-                   ;; I came to 2 by trying out
-                   2)
-          (hdd/automaton-destination (hdd/clj->vsa* j)
-                                     (hdd/clj->vsa* action))
-          ;; you might need to cleanup in between here
-          ;; could be handled by an SDM, too
-          hdd/cleanup
-          hdd/clj->vsa))
-      (hdd/clj->vsa j)
+      (fn [action j]
+        (let [res
+                (recover m (hdd/clj->vsa* [:* j action]) 1)]
+          ;; the vocab is in the memory, too so we
+          ;; can cleanup from it
+          (if-not res
+            (ensure-reduced res)
+            (recover m res 1))))
+      j
       action-structure)))
+
+(defn what-is-the-abc-that-starts-with-j
+  [abc j]
+  (generate-in-j-domain (find-action-structure abc) j))
+
+(comment
+  (hdd/cleanup* (recover m (hdd/clj->vsa* [:* :a :right]) 1))
+  (hdd/cleanup* (recover m (hdd/clj->vsa* :a) 1))
+  (recover m (hdd/clj->vsa* [:* :c :b]) 2)
+
+  (hdd/cleanup* (recover m (hdd/clj->vsa* [:* :a #{:right :left}]) 1))
+  '(:b)
+
+  (hdd/cleanup* (recover m (hdd/clj->vsa* [:* :c #{:right :left}]) 1))
+  '(:b)
+
+  (hdd/cleanup* (recover m (hdd/clj->vsa* [:* :c #{:right :left}]) 2))
+  '(:b :d)
+
+  ;; if you know the dest
+  (let [dest (hdd/clj->vsa* :b)]
+    (hdd/cleanup*
+     (hdd/intersection
+      (recover m (hdd/clj->vsa* [:* :c #{:right :left}]) 2)
+      dest)))
+  '(:b)
+
+  (hdd/cleanup* (hdd/automaton-source
+                 (recover m
+                          (hdd/clj->vsa*
+                           {{:a #{:right :left}} [:> :b]})
+                          2)
+                 (hdd/clj->vsa* :a)
+                 (hdd/clj->vsa* :b)))
+
+  (let [automaton (recover m
+                           (hdd/clj->vsa*
+                            {{:a #{:right :left}} [:> :b]})
+                           2)]
+    (hdd/cleanup* (hdd/clj->vsa* [:*.< automaton :a :_ :b])))
+
+  (find-action-structure [:a :b :c])
+  '(:right :right)
+  (find-action-structure [:c :b :a])
+  '(:left :left)
+  (find-action-structure [:c :d :c])
+  '(:right :left)
+
+  (hdd/cleanup* (recover m (hdd/clj->vsa* [:* :d :right]) 1))
+  '(:e)
+
+  (generate-in-j-domain [:right :right] :j)
+  '(:j :k :l)
+
+  (what-is-the-abc-that-starts-with-j [:a :b :c] :j))
 
 ;; stuff that works:
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:a :b :c] :j)))
-[:j :k :l]
+(assert
+ (= (into [] (what-is-the-abc-that-starts-with-j [:a :b :c] :j))
+    [:j :k :l]))
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:c :b :a] :z)))
+(into [] (what-is-the-abc-that-starts-with-j [:c :b :a] :z))
 [:z :y :x]
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:c :d :c] :j)))
+(into [] (what-is-the-abc-that-starts-with-j [:c :d :c] :j))
 [:j :k :j]
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:c :d :c :d] :j)))
+(into [] (what-is-the-abc-that-starts-with-j [:c :d :c :d] :j))
 [:j :k :j :k]
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:c :d :c :d :e :f :g] :j)))
+(into [] (what-is-the-abc-that-starts-with-j [:c :d :c :d :e :f :g] :j))
 [:j :k :j :k :l :m :n]
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:j :k :j] :j)))
+(into [] (what-is-the-abc-that-starts-with-j [:j :k :j] :j))
 [:j :k :j]
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:j :k :j] :o)))
+
+(into [] (what-is-the-abc-that-starts-with-j [:j :k :j] :o))
 [:o :p :o]
 
-(into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:j :k] :o)))
+
+(into [] (what-is-the-abc-that-starts-with-j [:j :k] :o))
 [:o :p]
 
-;; error, doesn't recover a transition from j to j
- (into [] (map hdd/cleanup (what-is-the-abc-that-starts-with-j [:j :j] :o)))
-;; error
+;; broke because no action goes between j and j
+(into [] (what-is-the-abc-that-starts-with-j [:j :j] :o))
+[:o :y]
+
+(time
+ (into [] (what-is-the-abc-that-starts-with-j [:j :k :j] :o)))
+;;
+;; "Elapsed time: 55.769834 msecs"
+;; not sure rn where the bottleneck is
+;;
 
 
 
 
-;; ... I only ran this once, not clear if I had luck
+;; prevously:
+;; 1) ... I only ran this once, not clear if I had luck
+
+;; 2) I ran it a second time and it didn't work. Lol.
+;;    I updated so we don't query with the superposition of the alphabet,
+;;    We just put more stuff in memory.
+;;
+
+
+
 
 
 

@@ -1,13 +1,15 @@
 (ns bennischwerdtner.sdm.sdm
   (:require
    [bennischwerdtner.pyutils :as pyutils :refer
-     [*torch-device*]]
-    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
-    [tech.v3.datatype.functional :as f]
-    [tech.v3.tensor :as dtt]
-    [fastmath.random :as fm.rand]
-    [libpython-clj2.require :refer [require-python]]
-    [libpython-clj2.python :refer [py. py..] :as py]))
+    [*torch-device*]]
+   [bennischwerdtner.hd.binary-sparse-segmented :as hd]
+   [tech.v3.datatype.functional :as f]
+   [tech.v3.tensor :as dtt]
+   [fastmath.random :as fm.rand]
+   [libpython-clj2.require :refer [require-python]]
+   [libpython-clj2.python :refer [py. py..] :as py]
+
+   ))
 
 ;;
 ;; This is a sparse distributed memory for binary sparse segmented hypervectors
@@ -134,7 +136,7 @@
 ;;
 ;;
 
-#_(comment
+(comment
   ;; what is p?
   ;; depends on the M the hard locations count,
   ;; density of the address matrix
@@ -170,6 +172,9 @@
   ;;
   ;; I do this by playing around with such numbers:
   ;;
+
+
+
   (torch/sum
    (decode-address (->decoder-coo
                     {:address-count (long 1e6)
@@ -177,11 +182,48 @@
                      :word-length (long 1e4)})
                    (hd/->hv)
                    1))
+
+
   ;; tensor(187, device='cuda:0')
   ;; (/ 200 1e6)
   ;; 2.0E-4
   ;; (ideal-p 1e3 1e6)
   ;; 7.937005259841001E-4
+
+
+  (torch/sum
+   (decode-address
+    (->decoder-coo
+     {:address-count (long 1e5)
+      :address-density 0.002
+      :word-length (long 1e4)})
+    (hd/->hv)
+    2))
+
+  (def a (hd/->hv))
+
+  (torch/sum
+   (decode-address
+    (->decoder-coo
+     {:address-count (long 1e5)
+      :address-density 0.003
+      :word-length (long 1e4)})
+    (hd/drop a 0.8)
+    2))
+
+  (time
+   (torch/sum
+    (decode-address
+     (->decoder-coo
+      {:address-count (long 1e6)
+       :address-density 0.000003
+       :word-length (long 1e4)})
+     (hd/->hv)
+     1)))
+
+
+
+
   )
 
 
@@ -585,7 +627,7 @@
                         0
                         (py.. (torch/div
                                (torch/sum (py.. topk-result
-                                                -values))
+                                            -values))
                                ;; also divide by top-k?
                                ;;
                                ;; scaling this with the
@@ -604,7 +646,7 @@
                                ;; account themselves.
                                ;;
                                (* segment-count address-location-count))
-                              item))
+                          item))
           :result
           (do
             ;; you don't need to synchronize cuda
@@ -631,24 +673,24 @@
                          (torch/topk (min top-k
                                           segment-length)))
          result (torch/scatter (torch/zeros
-                                 [segment-count
-                                  segment-length]
-                                 :dtype torch/uint8
-                                 :device *torch-device*)
+                                [segment-count
+                                 segment-length]
+                                :dtype torch/uint8
+                                :device *torch-device*)
                                1
                                (py.. topk-result -indices)
                                1)
          address-location-count (py.. (torch/nonzero
-                                        address-locations)
-                                      (size 0))]
+                                       address-locations)
+                                  (size 0))]
      {:address-location-count address-location-count
       :confidence
-        (if (zero? address-location-count)
-          0
-          (py.. (torch/div
-                  (torch/sum (py.. topk-result -values))
-                  (* segment-count address-location-count))
-                item))
+      (if (zero? address-location-count)
+        0
+        (py.. (torch/div
+               (torch/sum (py.. topk-result -values))
+               (* segment-count address-location-count))
+          item))
       :result (torch/reshape result [N])})))
 
 

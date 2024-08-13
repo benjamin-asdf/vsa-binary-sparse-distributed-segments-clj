@@ -36,6 +36,7 @@
 ;; -----------------------------------------
 
 
+
 ;; tiny item memory
 
 (defrecord TinyItemMemory [m]
@@ -64,7 +65,8 @@
   (m-cleanup* [this q]
     (map :k (m-cleanup-verbose this q))))
 
-(def ^:dynamic *item-memory* (->TinyItemMemory (atom {})))
+(def ^:dynamic *item-memory*
+  (->TinyItemMemory (atom {})))
 
 (defn clj->vsa [obj] (m-clj->vsa *item-memory* obj))
 (defn cleanup-verbose

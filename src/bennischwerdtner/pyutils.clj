@@ -13,10 +13,12 @@
    [libpython-clj2.require :refer [require-python]]
    [libpython-clj2.python :refer [py. py.. py.-] :as py]))
 
-(do
-  (require-python '[numpy :as np])
-  (require-python '[torch :as torch]))
-
+(def available
+  (try (require-python '[numpy :as np])
+       (require-python '[torch :as torch])
+       (require-python '[torch.sparse :as torch.sparse])
+       true
+       (catch Exception e false)))
 
 (def ^:dynamic *torch-device* :cpu)
 

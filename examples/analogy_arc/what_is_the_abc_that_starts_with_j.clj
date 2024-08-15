@@ -217,9 +217,10 @@
     (reductions
       (fn [action j]
         (let [res
-                (recover m (hdd/clj->vsa* [:* j action]) 1)]
+              (recover m (hdd/clj->vsa* [:* j action]) 1)]
           ;; the vocab is in the memory, too so we
           ;; can cleanup from it
+          ;; not needed here I guess
           (if-not res
             (ensure-reduced res)
             (recover m res 1))))
@@ -302,10 +303,8 @@
 (into [] (what-is-the-abc-that-starts-with-j [:j :k :j] :j))
 [:j :k :j]
 
-
 (into [] (what-is-the-abc-that-starts-with-j [:j :k :j] :o))
 [:o :p :o]
-
 
 (into [] (what-is-the-abc-that-starts-with-j [:j :k] :o))
 [:o :p]

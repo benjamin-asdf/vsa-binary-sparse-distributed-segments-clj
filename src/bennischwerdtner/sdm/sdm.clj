@@ -454,28 +454,27 @@
           ;; synchronization
           ;; (doesn't matter here yet because I have
           ;; datatransfers all the time anyway)
-          activated-locations (py.. (torch/nonzero
-                                      address-locations)
-                                    (view -1))
-          word-nonzero (py.. (torch/nonzero
-                               (pyutils/ensure-torch
-                                 input-word))
-                             (view -1))
+          activated-locations
+          (py.. (torch/nonzero address-locations) (view -1))
+          word-nonzero (py.. (torch/nonzero (pyutils/ensure-torch input-word))
+                         (view -1))
           indices (py.. (torch/cartesian_prod
-                          activated-locations
-                          word-nonzero)
-                        (t))
+                         activated-locations
+                         word-nonzero)
+                    (t))
           values (torch/ones (py.. indices (size 1))
                              :dtype torch/uint8
                              :device *torch-device*)
           update (torch/sparse_coo_tensor
-                   indices
-                   values
-                   (py.. content-matrix size))
+                  indices
+                  values
+                  (py.. content-matrix size))
           _content-matrix
-            (py.. content-matrix (add_ update) (coalesce))]
+          (py.. content-matrix (add_ update) (coalesce))]
       (py.. _content-matrix values (clamp_ 0 counter-max))
       content-matrix)))
+
+
 
 (defn read-coo-1
   "
@@ -787,7 +786,6 @@
                         address-locations
                         top-k
                         opts)))))
-
 
 ;; Not yet figured out.
 ;; is the same as 'iterative' lookup
@@ -1949,17 +1947,11 @@
                    (decode-and-step! address
                                      decoder-threshold)
                    content))
-      (lookup
-          [this address top-k decoder-threshold]
+        (lookup [this address top-k decoder-threshold]
           (lookup-1 storage
                     (decode-and-step! address
                                       decoder-threshold)
                     top-k)))))
-
-
-
-
-
 
 
 ;; -------------------------------------

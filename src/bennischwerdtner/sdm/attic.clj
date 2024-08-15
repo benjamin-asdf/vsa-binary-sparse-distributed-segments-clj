@@ -1536,6 +1536,7 @@
 
 
 
+
 ;; ----------------------------------
 ;;
 ;; Resonator network
@@ -1590,3 +1591,124 @@
 ;; - top-k per segment (modeling sheet inhibition)
 ;; - long range inhibition? model recruitment of basket cells?
 ;;
+
+
+
+
+
+
+
+
+(comment
+  (decode-addresses (->address-matrix 3 3 0)
+                    (torch/tensor [0 1 1]
+                                  :dtype torch/float16
+                                  :device *torch-device*)
+                    1)
+  (decode-addresses-coo (->address-matrix-coo 3 3 0)
+                        (torch/tensor [0 1 1]
+                                      :dtype torch/float32
+                                      :device
+                                      *torch-device*)
+                        1)
+  (decode-addresses-coo (->address-matrix-coo 3 3 0.5)
+                        (torch/tensor [0 1 1]
+                                      :dtype torch/float
+                                      :device
+                                      *torch-device*)
+                        1)
+  (py.. (torch/tensor [0 1 1]
+                      :dtype torch/float
+                      :device *torch-device*)
+        -dtype)
+  (decode-addresses-coo
+   (->address-matrix-coo 3 3 0.5)
+   (torch/tensor
+    [[0 1 1]
+     [0 1 1]]
+    :dtype torch/float
+    :device *torch-device*)
+   1)
+  (torch/bmm
+   (let
+       [w (torch/tensor
+           [[0 0 1]
+            [0 1 1]]
+           :dtype torch/float)]
+       (torch/))
+   ;; with batch dimension?
+   (torch/tensor [[0 1 1]
+                  [0 1 1]]
+                 :dtype torch/float
+                 :device *torch-device*))
+
+
+
+
+  (comment
+    (py.. (->content-matrix-coo 10 10) (to_dense))
+    (require-python '[updateC :as pcoo])
+    (alter-var-root #'pyutils/*torch-device*
+                    (constantly :cpu))
+    (pcoo/update_matrix_C
+     (->content-matrix-coo 3 3)
+     (torch/tensor [[true true false] [true true false]]
+                   :dtype torch/bool
+                   :device *torch-device*)
+     (torch/tensor [[1 1 1] [1 0 1]] :device *torch-device*))
+    (let [activated-locations
+          (torch/nonzero (torch/tensor [true true false]))
+          word-nonzero (py.. (torch/nonzero (torch/tensor
+                                             [0 1 0]))
+                             (view -1))]
+      (torch/cartesian_prod activated-locations word-nonzero))
+    (torch/cartesian_prod
+     (torch/nonzero (torch/tensor [true true false]))
+     ;; tensor([[0], [1]])
+     (torch/nonzero (torch/tensor [0 1 0])))
+    (py.. (->content-matrix-coo 3 3) indices)
+    (torch/mul (torch/tensor [true true false])
+               (torch/tensor [0 1 0]))
+    (torch/mul (torch/tensor [true true false])
+               (torch/tensor [0 1 0]))
+    (py.. (torch/sparse_coo_tensor
+           (py.. (torch/tensor [[0 0] [0 1]]) (t))
+           (torch/ones [2])
+           [3 3])
+          (to_dense))
+    ;; tensor([[1., 1., 0.],
+    ;;         [0., 0., 0.],
+    ;;         [0., 0., 0.]])
+    (let [y (torch/tensor [[true true false]
+                           [false false true]])
+          w (torch/tensor [[0 1 0] [1 1 1]])]
+      (torch/mv w y))
+    (let [w (->content-matrix-coo 3 3)
+          w (write-coo!
+             w
+             (torch/tensor [true true false]
+                           :dtype torch/bool
+                           :device *torch-device*)
+             (torch/tensor [1 1 1] :device *torch-device*))
+          w (write-coo!
+             w
+             (torch/tensor [true true false]
+                           :dtype torch/bool
+                           :device *torch-device*)
+             (torch/tensor [1 0 1] :device *torch-device*))]
+      (py.. w (to_dense)))
+    ;; tensor( [[2, 1, 2],
+    ;;          [2, 1, 2],
+    ;;          [0, 0, 0]], device='cuda:0',
+    ;;          dtype=torch.uint8)
+    (let [w (->content-matrix-coo 3 3)
+          w (write-coo-batch!
+             w
+             (torch/tensor [[true true false]
+                            [true true false]]
+                           :dtype torch/bool
+                           :device *torch-device*)
+             (torch/tensor [[1 1 1] [1 0 1]]
+                           :device
+                           *torch-device*))]
+      (py.. w (to_dense)))))

@@ -6,9 +6,9 @@
    [tech.v3.datatype.functional :as f]
    [tech.v3.tensor :as dtt]
    [fastmath.random :as fm.rand]
+
    [libpython-clj2.require :refer [require-python]]
    [libpython-clj2.python :refer [py. py..] :as py]
-
    ))
 
 ;;
@@ -211,20 +211,31 @@
     (hd/drop a 0.8)
     2))
 
-  (time
-   (torch/sum
-    (decode-address
-     (->decoder-coo
-      {:address-count (long 1e6)
-       :address-density 0.000003
-       :word-length (long 1e4)})
-     (hd/->hv)
-     1)))
+  (float (/ (py.. (torch/sum (decode-address
+                             (->decoder-coo
+                               {:address-count (long 1e6)
+                                :address-density 0.000006
+                                :word-length (long 1e4)})
+                             (hd/->hv)
+                             1))
+              item)
+            10))
 
 
+  (float
+   (/ (py.. (torch/sum (decode-address
+                        (->decoder-coo
+                         {:address-count (long 1e5)
+                          :address-density 0.0026
+                          :k-delays 3
+                          :word-length (long 1e4)})
+                        (hd/->hv)
+                        2))
+        item)
+      3))
 
-
-  )
+  41.0
+  (/ (long 1e5)))
 
 
 ;; ----------------------
@@ -1902,7 +1913,7 @@
   [opts]
   (let [inner-decoder (->decoder-coo opts)
         addr-delay-state (atom (->delayed-address-state
-                                 opts))
+                                opts))
         decode-and-step!
           (fn [addr decoder-threshold]
             (let [address-locations-complete

@@ -1,6 +1,7 @@
 (ns bennischwerdtner.hd.binary-sparse-segmented
   (:refer-clojure :exclude [drop])
   (:require
+   [tech.v3.datatype.unary-pred :as unary-pred]
    [tech.v3.datatype.functional :as f]
    [tech.v3.datatype :as dtype]
    [tech.v3.tensor :as dtt]
@@ -82,6 +83,14 @@
   ([{:bsdc-seg/keys [N]}]
    (dtt/->tensor (dtt/compute-tensor [N] (constantly 1) :int8))))
 
+(defn ->rand-mask
+  "Returns a 'ones vector' of hypervector lenght."
+  ([chance] (->rand-mask chance default-opts))
+  ([chance {:bsdc-seg/keys [N]}]
+   (dtt/->tensor
+    (dtt/compute-tensor [N] (fn [_] (fm.rand/flip chance)) :boolean))))
+
+
 (defn indices->hv
   "Returns a segmented hypervector with `indices` set to 1, segmentwise.
 
@@ -132,10 +141,36 @@
    (-> (dtt/reshape a [segment-count segment-length])
        (dtt/reduce-axis (fn [segment] (dtype-argops/argmax segment))))))
 
+(defn hv->indices*
+  "Returns a segment representation of `hv`, which is allowed
+  to have multiple indices per segment.
+
+  This returns a sequence of indices vectors for each segment.
+
+  The difference to [[hv->indices]] is that it doesn't take the argmax
+  for each segment, it returns all segment indices with more than 0 value.
+
+  See [[hv->indices]].
+  "
+  ([a] (hv->indices* a default-opts))
+  ([a {:bsdc-seg/keys [segment-count segment-length N]}]
+   (-> (f/< 0 a)
+       (dtt/reshape [segment-count segment-length])
+       (dtt/reduce-axis (fn [segment]
+                          (unary-pred/bool-reader->indexes
+                           segment))
+                        -1
+                        :vector))))
+
+
 (comment
   (hv->indices [0 1 0 1 0 0] {:bsdc-seg/N 6 :bsdc-seg/segment-count 2 :bsdc-seg/segment-length 3})
   [1 0]
-  (hv->indices (->hv)))
+  (hv->indices (->hv))
+  (hv->indices* [0 1 1 1 0 0] {:bsdc-seg/N 6 :bsdc-seg/segment-count 2 :bsdc-seg/segment-length 3})
+  (hv->indices* (f/+ (->hv) (->hv)))
+
+  )
 
 
 ;; BSC Fully Distributed Representation Kanerva 1997
@@ -1048,6 +1083,38 @@
      (dtt/->tensor v tensor-opts))))
 
 (def weaken drop)
+
+(defn drop-randomly
+  "Drop random bits from hv with `drop-chance`."
+  ([hv drop-chance]
+   (drop-randomly hv drop-chance default-opts))
+  ([hv drop-chance opts]
+   (dtt/->tensor
+    (f/bit-and hv (->rand-mask (- 1 drop-chance) opts)))))
+
+(comment
+  (dtt/select
+   (dtt/->tensor (range 10))
+   (unary-pred/bool-reader->indexes (->rand-mask 0.8 {:bsdc-seg/N 10})))
+  (dtt/select
+   (dtt/->tensor (range 10))
+   (unary-pred/bool-reader->indexes (->rand-mask 0.1 {:bsdc-seg/N 10})))
+
+  (f/sum (drop-randomly (->seed) 0.8))
+  (f/sum (drop-randomly (->seed) 1.0))
+  (f/sum (drop-randomly (->seed) 0.0))
+  (f/sum (drop-randomly (->seed) 0.5))
+
+  (def a (->seed))
+
+  (similarity a (drop-randomly a 0.0))
+  (similarity a (drop-randomly a 1.0))
+  (similarity a (drop-randomly a 0.5))
+  (similarity a (drop-randomly a 0.8))
+  (similarity a (drop-randomly a 0.2)))
+
+
+
 
 (comment
   (dtt/reduce-axis

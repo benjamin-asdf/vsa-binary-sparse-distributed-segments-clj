@@ -32,6 +32,11 @@
 ;; - I allow self-connection (https://en.wikipedia.org/wiki/Autapse)
 ;;
 
+;; Notes:
+;; - they refer to Buzsáki trajectories quite a bit,
+;; - conceptually the analog in their model should be pre-allocated, robust 'scaffold' sequences
+;;
+;;
 
 
 (do
@@ -47,7 +52,6 @@
   (require-python '[numpy :as np])
   (require-python '[torch :as torch])
   (require-python '[torch.sparse :as torch.sparse])
-  (require-python '[builtins :as builtins])
   (require '[libpython-clj2.python.np-array]))
 
 (defn cap-k [inputs k]

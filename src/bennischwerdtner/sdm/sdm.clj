@@ -173,8 +173,6 @@
   ;; I do this by playing around with such numbers:
   ;;
 
-
-
   (torch/sum
    (decode-address (->decoder-coo
                     {:address-count (long 1e6)
@@ -191,6 +189,7 @@
   ;; 7.937005259841001E-4
 
 
+
   (torch/sum
    (decode-address
     (->decoder-coo
@@ -199,6 +198,19 @@
       :word-length (long 1e4)})
     (hd/->hv)
     2))
+
+
+  (torch/sum
+   (decode-address
+    (->decoder-coo
+     {:address-count (long 1e5)
+      :address-density 0.002
+      :word-length (long 1e4)})
+    (hd/->hv)
+    1))
+
+
+
 
   (def a (hd/->hv))
 
@@ -212,12 +224,12 @@
     2))
 
   (float (/ (py.. (torch/sum (decode-address
-                             (->decoder-coo
+                              (->decoder-coo
                                {:address-count (long 1e6)
                                 :address-density 0.000006
                                 :word-length (long 1e4)})
-                             (hd/->hv)
-                             1))
+                              (hd/->hv)
+                              1))
               item)
             10))
 

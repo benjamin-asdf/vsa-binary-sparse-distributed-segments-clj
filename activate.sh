@@ -1,3 +1,3 @@
 echo activate venv
 source ./venv/bin/activate
-. /etc/profile.d/cuda.sh
+[ -f /etc/profile.d/cuda.sh ] && . /etc/profile.d/cuda.sh

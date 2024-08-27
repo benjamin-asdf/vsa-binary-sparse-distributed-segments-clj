@@ -1439,6 +1439,11 @@
   ([& transitions]
    (apply hd/superposition (map transition transitions))))
 
+(defn fsa
+  "Same as [[finite-state-automaton]] but `transitions` is a seq."
+  ([transitions]
+   (apply finite-state-automaton transitions)))
+
 (defn automaton-destination
   "Returns a noisy hdv that is the result of
   querying `automaton`, a finite state automaton, for the next state,

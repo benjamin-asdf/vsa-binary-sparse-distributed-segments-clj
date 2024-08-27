@@ -21,11 +21,13 @@
 
 
 (def available
-  (try (require-python '[numpy :as np])
-       (require-python '[torch :as torch])
-       (require-python '[torch.sparse :as torch.sparse])
-       true
-       (catch Exception e false)))
+  (try
+    (require-python '[numpy :as np])
+    (require-python '[torch :as torch])
+    (require-python '[torch.sparse :as torch.sparse])
+    (require '[libpython-clj2.python.np-array])
+    true
+    (catch Exception e false)))
 
 ;; ah, whatever.
 ;; (I wanted to check for 'available')
@@ -69,67 +71,65 @@
         seed (fn []
                (if (<= n-seeds (count @lut))
                  (throw (Exception.
-                          "codebook out of seeds"))
+                         "codebook out of seeds"))
                  (nth pool (count @lut))))
         codebook-matrix (->codebook-matrix pool)]
     (reify
       prot/ItemMemory
-        (m-clj->vsa [this item]
-          (or (get @lut item)
-              (let [v (seed)]
-                (swap! lut assoc item v v item)
-                v)))
-        (m-cleanup-verbose [this q]
-          (m-cleanup-verbose this q 0.18))
-        (m-cleanup-verbose [this q threshold]
-          (let [{:keys [idxs sims]}
-                  (codebook-cleanup-verbose codebook-matrix
-                                            q
-                                            threshold)]
-            (map (fn [hd sim]
-                   {:k (get @lut hd) :similarity sim :v hd})
-              (dtt/select pool idxs)
-              sims)))
-        (m-cleanup [this q]
-          (get @lut
-               (nth pool
-                    (py. (torch/argmax
-                           (torch/mv
-                             codebook-matrix
-                             (py.. (pyutils/ensure-torch q)
-                                   (to :dtype
-                                       torch/float16))))
-                         item))))
-        (m-cleanup* [this q threshold]
-          (map :k (m-cleanup-verbose this q threshold)))
-        (m-cleanup* [this q] (m-cleanup* this q 0.18)))))
+      (m-clj->vsa [this item]
+        (or (get @lut item)
+            (let [v (seed)]
+              (swap! lut assoc item v v item)
+              v)))
+      (m-cleanup-verbose [this q]
+        (m-cleanup-verbose this q 0.18))
+      (m-cleanup-verbose [this q threshold]
+        (let [{:keys [idxs sims]}
+              (codebook-cleanup-verbose codebook-matrix
+                                        q
+                                        threshold)]
+          (map (fn [hd sim]
+                 {:k (get @lut hd) :similarity sim :v hd})
+               (dtt/select pool idxs)
+               sims)))
+      (m-cleanup [this q]
+        (get @lut
+             (nth pool
+                  (py. (torch/argmax
+                        (torch/mv
+                         codebook-matrix
+                         (py.. (pyutils/ensure-torch q)
+                           (to :dtype
+                               torch/float16))))
+                      item))))
+      (m-cleanup* [this q threshold]
+        (map :k (m-cleanup-verbose this q threshold)))
+      (m-cleanup* [this q] (m-cleanup* this q 0.18)))))
 
 
 (comment
+  (hdc/preallocated-alphabet 1)
   (def m (codebook-item-memory 10))
   (prot/m-cleanup-verbose m (prot/m-clj->vsa m :foo) 0.2))
 
+(comment
+  (pyutils/ensure-torch (hd/->seed))
+  (def t-nump (numpy/zeros [10]))
+  (def tens (dtt/->tensor (range 10) :datatype :int8))
+  (torch/argsort
+   (torch/mv
+    (torch/tensor
+     [[0 1 0]
+      [0 1 1]])
+    (torch/tensor [0 1 1])))
 
-(comment (torch/argmax
-          (torch/mv
-           codebook-matrix
-           (py.. (pyutils/ensure-torch q)
-             (to :dtype torch/float16))))
+  (py..
+      (torch/argmax (torch/mv (torch/tensor [[0 1 0]
+                                             [0 1 1]])
+                              (torch/tensor [0 1 1])))
+      item)
 
-         (torch/argsort
-          (torch/mv
-           (torch/tensor
-            [[0 1 0]
-             [0 1 1]])
-           (torch/tensor [0 1 1])))
-
-         (py..
-             (torch/argmax (torch/mv (torch/tensor [[0 1 0]
-                                                    [0 1 1]])
-                                     (torch/tensor [0 1 1])))
-             item)
-
-         (torch/div
-          (torch/mv (torch/tensor [[0 1 0 0] [0 1 1 1]])
-                    (torch/tensor [0 1 1 0]))
-          2))
+  (torch/div
+   (torch/mv (torch/tensor [[0 1 0 0] [0 1 1 1]])
+             (torch/tensor [0 1 1 0]))
+   2))

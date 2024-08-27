@@ -1,15 +1,13 @@
 (ns bennischwerdtner.sdm.sdm
   (:require
-   [bennischwerdtner.pyutils :as pyutils :refer
-    [*torch-device*]]
-   [bennischwerdtner.hd.binary-sparse-segmented :as hd]
-   [tech.v3.datatype.functional :as f]
-   [tech.v3.tensor :as dtt]
-   [fastmath.random :as fm.rand]
-
-   [libpython-clj2.require :refer [require-python]]
-   [libpython-clj2.python :refer [py. py..] :as py]
-   ))
+    [bennischwerdtner.pyutils :as pyutils :refer
+     [*torch-device*]]
+    [bennischwerdtner.hd.binary-sparse-segmented :as hd]
+    [tech.v3.datatype.functional :as f]
+    [tech.v3.tensor :as dtt]
+    [fastmath.random :as fm.rand]
+    [libpython-clj2.require :refer [require-python]]
+    [libpython-clj2.python :refer [py. py..] :as py]))
 
 ;;
 ;; This is a sparse distributed memory for binary sparse segmented hypervectors

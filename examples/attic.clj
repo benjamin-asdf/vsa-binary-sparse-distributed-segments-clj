@@ -1356,3 +1356,131 @@
       (hd/similarity (f/+ a1 b1) a)
       ;; and of course that would then be similar to what is mixed
       (hd/similarity (f/+ a1 b1 a2) a)))
+
+
+;; --
+;; another explorative attempt at a resonator
+
+;; ----
+
+(def codebooks
+  [(sdm/->sdm
+    {:address-count (long 1e6)
+     :address-density 0.000003
+     :word-length (long 1e4)})
+   (sdm/->sdm
+    {:address-count (long 1e6)
+     :address-density 0.000003
+     :word-length (long 1e4)})
+   (sdm/->sdm
+    {:address-count (long 1e6)
+     :address-density 0.000003
+     :word-length (long 1e4)})])
+
+(doall
+ (map
+  (fn [factors sdm]
+    (doseq [f factors]
+      (sdm/write sdm f f 1)))
+  (map-indexed
+   (fn [i factors] (map (fn [x] (hd/permute-n x i)) factors))
+   (hdd/clj->vsa*
+    [[:s0 :s1]
+     [0 1 :halt false true]
+     [:right :left :-]]))
+  codebooks))
+
+;; -------------
+
+(def x (hdd/clj->vsa* [:*> :s0 0 :right]))
+
+(defn bounce-resonator
+  [codebooks x]
+  (reductions
+    (fn [{:keys [best-guesses confidence excitability]} n]
+      (let [new-confidence
+              (hd/similarity (hd/bind* best-guesses) x)
+            excitability (max 5
+                              (min 1
+                                   (if (<= confidence
+                                           new-confidence)
+                                     (inc excitability)
+                                     (dec excitability))))]
+        (if (<= 0.99 confidence)
+          (ensure-reduced {:best-guesses best-guesses
+                           :confidence confidence
+                           :n n})
+          {:best-guesses (into []
+                               (map (fn [sdm guess]
+                                      (pyutils/torch->jvm
+                                        (:result
+                                          (sdm/lookup
+                                            sdm
+                                            guess
+                                            excitability
+                                            1))))
+                                 codebooks
+                                 best-guesses))
+           :confidence confidence
+           :n n})))
+    {:best-guesses (for [sdm codebooks]
+                     (pyutils/torch->jvm
+                       (:result
+                         (sdm/lookup sdm (hd/->ones) 4 1))))
+     :confidence 0
+     :excitability 4}
+    (range 10)))
+
+(bounce-resonator codebooks x)
+
+
+(def best-guesses
+  (into []
+        (for [sdm codebooks]
+          (pyutils/torch->jvm
+           (:result (sdm/lookup sdm (hd/->ones) 4 1))))))
+
+(map hdd/cleanup* (map-indexed (fn [i x] (hd/permute-n x (- i))) best-guesses))
+
+
+'((:s0 :s1) (0 :halt true false) (:right :- :left))
+'((:s0 :s1) (:halt true false) (:right :- :left))
+'((:s0 :s1) (0 :halt true false) (:right :- :left))
+
+(hdd/cleanup* (hd/unbind x (hd/bind* (rest best-guesses))))
+
+(hd/similarity
+ (hdd/clj->vsa* [:+ :s0 :s1])
+ (hd/unbind x (hdd/clj->vsa*
+               [:*
+                [:> [:+ 0 1 true false]]
+                [:>> [:+ :- :right :right]]])))
+
+(hd/similarity
+  (hd/bind* (into []
+                  (for [sdm codebooks]
+                    (pyutils/torch->jvm
+                      (:result (sdm/lookup sdm
+                                           (hd/drop-randomly
+                                             (hd/->ones)
+                                             0.5)
+                                           1
+                                           1))))))
+  x)
+
+
+
+
+(hd/similarity x (hd/bind* best-guesses))
+
+(hd/similarity x
+               (hdd/clj->vsa*
+                [:*>
+                 [:+ :s0 :s1]
+                 [:+ 0 1 true false]
+                 [:+ :- :right :right]]))
+
+(hdd/cleanup* (first best-guesses))
+'(:s0 :s1)
+(hdd/cleanup* (hd/permute-inverse (second best-guesses)))
+(hdd/cleanup* (hd/permute-inverse (hd/permute-inverse (second (rest best-guesses)))))

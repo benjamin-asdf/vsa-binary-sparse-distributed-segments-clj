@@ -20,6 +20,25 @@
  #'hdd/*item-memory*
  (constantly (codebook/codebook-item-memory 1000)))
 
+;; -----------------------------
+;; Example data:
+;;
+;; This is a parity finder turing machine:
+;;
+
+(def
+  quintuples
+  [[:s0 0    :s0    0 :right]
+   [:s0 1    :s1    0 :right]
+   [:s0 :b   :halt true :-]
+   ;; -------------------------------
+   [:s1 0 :s1 0 :right]
+   [:s1 1 :s0 0 :right]
+   [:s1 :b :halt false :-]])
+
+
+
+
 ;; Turing machine:
 ;; Finite State Machine and a Tape
 ;;
@@ -51,10 +70,76 @@
 (defprotocol Decider
   (decide [this input]))
 
+;; ----
+
+;; This will require some philosophical explanation,
+;; but I think it makes sense.
+;; Trivially implemented via vsa bind/unbind.
+(defprotocol Entanglement
+  (flip [this input]))
+
 
 ;; ----
 
+(defn sdm-fsm-target
+  [target-state output action]
+  {:action action
+   :output output
+   :target-state target-state})
 
+(comment
+  (sdm/lookup sdm (hdd/clj->vsa* [:* :s0 0]) 3 1)
+  (f/sum (read-1 sdm (hdd/clj->vsa* [:* :s0 0]) 3))
+  60.0
+  (for [branch [:action :output :target-state]]
+    (hdd/clj->vsa*
+     [:?? [:. (read-1 sdm (hdd/clj->vsa* [:* :s0 0]) 3) branch]]))
+  (doseq [branch [:action :output :target-state]]
+    (sdm/write
+     sdm
+     (hdd/clj->vsa* [:* :s0 0 branch])
+     (hdd/clj->vsa*
+      ({:action :right
+        :output 0
+        :target-state :s0}
+       branch))
+     1))
+  (for [branch [:action :output :target-state]]
+    (hdd/clj->vsa*
+     [:?? (read-1 sdm (hdd/clj->vsa* [:* :s0 0 branch]) 1)])))
+
+(defn ->sdm-fsm
+  [quintuples]
+  (let [sdm (sdm/->sdm {:address-count (long 1e6)
+                        :address-density 0.000003
+                        :word-length (long 1e4)})]
+    (doseq [[state input-symbol target-state output-symbol
+             action]
+            quintuples]
+      (sdm/write sdm
+                 (hdd/clj->vsa* [:* state input-symbol])
+                 (hdd/clj->vsa* (sdm-fsm-target
+                                 target-state
+                                 output-symbol
+                                 action))
+                 1))
+    (reify
+      FSM
+      (transition [this current-state input-symbol]
+        (read-1
+         sdm
+         (hdd/clj->vsa* [:* current-state input-symbol])
+         3)))))
+
+(comment
+  (def fsm (->sdm-fsm quintuples))
+  (hdd/cleanup*
+   (hdd/clj->vsa* [:. (transition fsm :s0 0) :output]))
+  (hdd/cleanup*
+   (hdd/clj->vsa* [:. (transition fsm :s0 1) :action])))
+
+
+;; ----
 
 (defn turing-machine
   [{:keys [fsm initial-tape initial-state]}]
@@ -79,45 +164,6 @@
 
 ;; ----
 
-(def fsa
-  (let [quintuples
-          [[:s0 0 :s0    0 :right]
-           [:s0 1 :s1    0 :right]
-           [:s0 :b :halt true :-]
-           ;; -------------------------------
-           [:s1 0 :s1 0 :right]
-           [:s1 1 :s0 0 :right]
-           [:s1 :b :halt false :-]]]
-    (hdd/fsa (for [[state input-symbol & outputs]
-                     (hdd/clj->vsa* quintuples)]
-               [state input-symbol
-                (hdd/clj->vsa*
-                  (let [[next-state output action] outputs]
-                    {:action action
-                     :output output
-                     :state next-state}))]))))
-
-(comment
-  (decide (->decider [:left :right :halt]) (hdd/clj->vsa* :left))
-)
-(defn ->decider
-  [symbolic-codebook]
-  (let [item-memory
-        (hdd/->TinyItemMemory
-         (atom
-          (into {}
-                (for [k symbolic-codebook]
-                  [k (hdd/clj->vsa* k)]))))]
-    (reify
-      Decider
-        (decide [this input]
-          (prot/m-cleanup item-memory input)))))
-
-(def action-decider (->decider [:left :right :halt :-]))
-(def state-decider (->decider [:s1 :s0]))
-(def output-symbol-decider (->decider [0 1 :b false true]))
-
-
 
 ;; ----------------------
 
@@ -135,29 +181,30 @@
 
 
 
+(comment
+  (def sdm (sdm/->sdm {:address-count (long 1e6)
+                       :address-density 0.000003
+                       :word-length (long 1e4)}))
 
-(def sdm (sdm/->sdm {:address-count (long 1e6)
-                     :address-density 0.000003
-                     :word-length (long 1e4)}))
+  (def head (hd/->seed))
 
-(def head (hd/->seed))
+  (sdm/write sdm head (hdd/clj->vsa* :a) 1)
 
-(sdm/write sdm head (hdd/clj->vsa* :a) 1)
-
-(sdm/converged-lookup-impl
- sdm
- head
- {:decoder-threshold 1
-  :max-steps 5
-  :stop? (fn [acc next-outcome]
-           (when (< (:confidence next-outcome) 0.2)
-             {:stop-reason :low-confidence
-              :success? false}))
-  :top-k 1})
+  (sdm/converged-lookup-impl
+   sdm
+   head
+   {:decoder-threshold 1
+    :max-steps 5
+    :stop? (fn [acc next-outcome]
+             (when (< (:confidence next-outcome) 0.2)
+               {:stop-reason :low-confidence
+                :success? false}))
+    :top-k 1}))
 
 (defn read-1
   [sdm addr top-k]
   (let [lookup-outcome (sdm/lookup sdm addr top-k 1)]
+    (def lookup-outcome lookup-outcome)
     (when (< 0.2 (:confidence lookup-outcome))
       (some-> lookup-outcome
               :result
@@ -166,6 +213,23 @@
 
 (defn iteratively-override
   [sdm address s top-k]
+  ;;
+  ;; I am under the impression that an implementation
+  ;; in neuronal circuits is straightforward.
+  ;;
+  ;; Caveats
+  ;;
+  ;; I: 'current-content' register: My idea is that it
+  ;; would be implemented with a stable neuronal
+  ;; ensemble. Here, this is 'infinitely faithful' in
+  ;; computer memory.
+  ;;
+  ;; II:
+  ;; The notion of halting this subroutine surely must
+  ;; be a best effort thing in a biological system.
+  ;; (Perhaps with restarts etc.)
+  ;;
+  ;;
   (loop [current-content (read-1 sdm address top-k)]
     (if (and current-content
              (<= 0.95 (hd/similarity current-content s)))
@@ -173,102 +237,119 @@
       (recur (do (sdm/write sdm address s 1)
                  (read-1 sdm address top-k))))))
 
-(iteratively-override sdm (hdd/clj->vsa* :foo) (hdd/clj->vsa* :bar) 1)
-(hd/similarity
- (hdd/clj->vsa* :bar)
- (read-1 sdm (hdd/clj->vsa* :foo) 1))
 
+(comment
+  (iteratively-override sdm (hdd/clj->vsa* :foo) (hdd/clj->vsa* :bar) 1)
+  (hd/similarity
+   (hdd/clj->vsa* :bar)
+   (read-1 sdm (hdd/clj->vsa* :foo) 1)))
 
 (defn sdm-get-create
   [sdm addr]
   (let [content (read-1 sdm addr 1)]
+    ;;
+    ;; This could be implemented by pre-allocated
+    ;; random seeds.
+    ;; (for instance neuronal ensembles created during
+    ;; brain development) (G. Buzsáki)
+    ;;
+    ;; I.e. for everything that you ask for, you get an
+    ;; answer (which can be a fresh random seed).
+    ;;
+    ;; Here, we allocate a random symbol the moment we
+    ;; look instead. But I still feel entitled to call
+    ;; it biologically principled.
+    ;;
     (when-not content (sdm/write sdm addr (hd/->seed) 1))
     {:existed? (boolean content)
      :target (read-1 sdm addr 1)}))
 
-(defn get-edge-create
-  [sdm source direction]
-  (let [edge (hdd/clj->vsa* [:* source direction])
-        edge-destination (read-1 sdm edge 1)]
-    (when-not edge-destination
-      (sdm/write sdm edge (hd/->seed) 1))
-    {:existed? (boolean edge-destination)
-     :target (read-1 sdm edge 1)}))
+;; --------------------------
 
 (comment
   (sdm/write sdm (hdd/clj->vsa* [:* head :right]) (hd/->seed) 1)
   (get-edge-create sdm head :right)
   (get-edge-create sdm head :left))
 
+(defn entangle
+  [& symbols]
+  (let [virtual-circuit (hdd/clj->vsa* [:* symbols])]
+    (reify
+      Entanglement
+        (flip [this input]
+          (hdd/clj->vsa* [:. virtual-circuit input])))))
+
 (defn ->tape
   ([]
    (let [sdm (sdm/->sdm {:address-count (long 1e6)
                          :address-density 0.000003
                          :word-length (long 1e4)})
-         head (atom (hd/->seed))]
+         head (atom (hd/->seed))
+         directions-entanglement (entangle :right :left)]
      (reify
        Tape
-         (write [this s]
-           (iteratively-override sdm
-                                 @head
-                                 (hdd/clj->vsa* s)
-                                 1))
-         (read-tape [this] (read-1 sdm @head 1))
-         (move [this direction]
-           ;;
-           ;; 1. edge:
-           ;; current address * :right -> next-address
-           ;;
-           ;; 2. tape element
-           ;; address -> content
-           ;;
-           ;;
-           ;; moving right means checking if current
-           ;; address * :right is stored in the sdm and
-           ;; creating a new seed address, if not
-           ;;
-           ;;
-           ;; move:
-           ;; 1. create edge, if it doesn't exist
-           ;; already
-           ;; - current-addr * right -> next-address
-           ;; - create a new seed for next-address, if
-           ;; it doesn't exist
-           ;; 2. update head to current-addr * right
-           ;;
-           (let [current-head @head
-                 {:keys [target]} (sdm-get-create
-                                    sdm
-                                    (hdd/clj->vsa*
-                                      [:* current-head
-                                       direction]))
-                 ;; for supporting :left, I also need
-                 ;; to update the other direction if
-                 ;; moving right, you need to make sure
-                 ;; there is an edge new-addr * left ->
-                 ;; old-addr
-                 ;;
-                 ;; if moving left, same thing for
-                 ;; new-addr * right -> old-addr
-                 reverse-dir ({:left :right :right :left}
-                              direction)
-                 ;;
-                 ;; create the backward edge
-                 ;;
-                 ;;
-                 _ (sdm/write sdm
-                              (hdd/clj->vsa* [:* target
-                                              reverse-dir])
-                              current-head
-                              1)]
-             (reset! head target))))))
+       ;; 2. tape element
+       ;; address -> content
+       ;;
+       (write [this s]
+         (iteratively-override sdm
+                               @head
+                               (hdd/clj->vsa* s)
+                               1))
+       (read-tape [this] (read-1 sdm @head 1))
+       (move [this direction]
+         ;;
+         ;; 1. edge:
+         ;; current address * :right -> next-address
+         ;;
+         ;; To move,
+         ;; ask the system for the content at addr address * :right,
+         ;; which is a fresh random seed, if it doesn't exist
+         ;;
+         ;;
+         ;; move:
+         ;; 1. get/create current-addr * right -> target (next-address)
+         ;; 2. update head to target address
+         ;; 3. handle backwards edge
+         ;; The result is the tape head points to the (possibly fresh) tile to the right
+         ;;
+         (let [current-head @head
+               {:keys [target]}
+               (sdm-get-create
+                sdm
+                (hdd/clj->vsa*
+                 [:* current-head
+                  direction]))
+               ;; I also need to update the other
+               ;; direction
+               reverse-dir
+               ;;
+               ;; symbolically:
+               ;; ({:left :right :right :left}
+               ;; direction)
+               ;; hdc:
+               ;;
+               ;; Of course, the interesting thing
+               ;; is that direction is allowed to
+               ;; be a superposition of directions.
+               (flip directions-entanglement direction)
+               ;;
+               ;;
+               ;; create the backward edge
+               ;;
+               ;;
+               _ (sdm/write sdm
+                            (hdd/clj->vsa* [:* target
+                                            reverse-dir])
+                            current-head
+                            1)]
+           (reset! head target))))))
   ([initial-tape]
    (let [res (->tape)]
      (doseq [symb initial-tape]
        (do (write res symb) (move res :right)))
      (doseq [_ initial-tape] (move res :left))
      res)))
-
 
 ;; ---------------------------------
 ;;
@@ -277,11 +358,12 @@
   (def tape (->tape [:a :b :c]))
   (move tape :left)
   (hdd/cleanup (read-tape tape))
-
   (def tape (->tape))
   (write tape :a)
   (hdd/cleanup (read-tape tape))
   (move tape :right)
+
+  (def target *1)
   (write tape :b)
   (hdd/cleanup (read-tape tape))
   (move tape :left))
@@ -417,28 +499,6 @@ state
   :initial-state :s0})
 
 ;; ------------
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 (comment
   (for [state [:s0 :s1]

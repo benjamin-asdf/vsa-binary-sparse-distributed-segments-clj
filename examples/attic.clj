@@ -1,3 +1,24 @@
+
+
+
+(defn ->decider
+  [symbolic-codebook]
+  (let [item-memory
+        (hdd/->TinyItemMemory
+         (atom
+          (into {}
+                (for [k symbolic-codebook]
+                  [k (hdd/clj->vsa* k)]))))]
+    (reify
+      Decider
+        (decide [this input]
+          (prot/m-cleanup item-memory input)))))
+
+(def action-decider (->decider [:left :right :halt :-]))
+(def state-decider (->decider [:s1 :s0]))
+(def output-symbol-decider (->decider [0 1 :b false true]))
+
+
 (comment
   (def x-reportior (hdd/clj->vsa* #{:left :right}))
   (def y-reportior (hdd/clj->vsa* #{[:> :left 1] [:> :right 1]}))

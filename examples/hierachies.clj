@@ -19,11 +19,15 @@
  #'hdd/*item-memory*
  (constantly (codebook/codebook-item-memory 1000)))
 
-
 ;;
 ;; Sequence hierachies:
 ;; ---------------
 
+;;
+;; This is a place where there is not much empirical work afaik.
+;;
+;;
+;;
 
 ;; Idea I:
 ;;
@@ -721,16 +725,18 @@
 
 
 
+;; Idea II:
 
-
-
-
-
-
-
-
-
-
+;;
+;; - similarly, you could take the ensemble of highest activation in a 7 ensemble neuronal word
+;; - that corresponds to the 'now' place field in a hippocampal trajectory
+;;
+;;
+;;
+;;
+;;
+;;
+;;
 
 
 

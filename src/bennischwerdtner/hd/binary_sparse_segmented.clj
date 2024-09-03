@@ -1058,8 +1058,8 @@
   ([a drop-ratio
     {:bsdc-seg/keys [segment-count segment-length N]
      :keys [tensor-opts]}]
-   ;; the indices decide how to drop,
-   ;; is a form of 'context dependent thinning'.
+   ;; the indices decide how to drop, is a form of
+   ;; 'context dependent thinning'.
    ;;
    ;; I think I can just make a cutoff at the segment
    ;; indices. This might have some undesirable
@@ -1076,10 +1076,10 @@
      (doall (map (fn [idx-in-seg i]
                    (when (<= segmentwise-cutoff idx-in-seg)
                      (dtype/set-value! v i 1)))
-                 indices
-                 (f/+ (f/* (range segment-count)
-                           segment-length)
-                      indices)))
+              indices
+              (f/+ (f/* (range segment-count)
+                        segment-length)
+                   indices)))
      (dtt/->tensor v tensor-opts))))
 
 (def weaken drop)
@@ -1091,6 +1091,7 @@
   ([hv drop-chance opts]
    (dtt/->tensor
     (f/bit-and hv (->rand-mask (- 1 drop-chance) opts)))))
+
 
 (comment
   (dtt/select
@@ -1114,9 +1115,61 @@
   (similarity a (drop-randomly a 0.2)))
 
 
+(comment
+  (defn block-mask
+    ([segment-indices]
+     (block-mask segment-indices default-opts))
+    ([segment-indices
+      {:bsdc-seg/keys [segment-count segment-length N]}]
+     (let [segment-indices (into #{} segment-indices)]
+       (dtt/reshape (dtt/compute-tensor
+                     [segment-count segment-length]
+                     (fn [l i] (if (segment-indices l) 1 0))
+                     :boolean)
+                    [N]))))
 
+  ;; 1/2  - specifies the first half of a hdv
+  ;; -1/2 - specifies the second half of a hdv
+  (defn ->block-range
+    ([range-ratio] (block-range range-ratio default-opts))
+    ([range-ratio
+      {:bsdc-seg/keys [segment-count segment-length N]}]
+     (range
+      (if
+          (pos? range-ratio)
+          0
+          (* segment-count (abs range-ratio)))
+      (if (pos? range-ratio)
+        (* segment-count range-ratio)
+        segment-count))))
+
+  (defn select-blockwise
+    ([a block-range]
+     (select-blockwise a block-range default-opts))
+    ([a block-range opts]
+     (dtt/->tensor (f/< 1
+                        (f/+ a (block-mask block-range opts)))
+                   :datatype
+                   :int8)))
+
+  (defn select-block-range
+    ([a block-range]
+     (select-block-range a block-range default-opts))
+    ([a block-range opts]
+     (select-blockwise a (->block-range block-range opts)))))
 
 (comment
+  (->block-range 1/2)
+  (->block-range -1/2)
+
+  (f/sum (select-blockwise (->seed) [1]))
+
+  (select-block-range (->seed) [1])
+
+  (f/+
+   (->seed {:bsdc-seg/N 16 :bsdc-seg/segment-count 4 :bsdc-seg/segment-length 4})
+   (block-mask [1 2 3] {:bsdc-seg/N 16 :bsdc-seg/segment-count 4 :bsdc-seg/segment-length 4}))
+
   (dtt/reduce-axis
    (dtt/reshape (range 10) [2 5])))
 

@@ -1,4 +1,41 @@
 
+;; this doesn't make that much sense:
+(comment
+  (doseq [n (map hdd/clj->vsa* (range 7))]
+    (sdm/write sdm n n 1))
+
+  ;; this turns out to work with
+  ;; segment-count 100
+  ;; and dropping 0.8 in the combination
+
+  (hdd/cleanup*
+   (:result (sdm/lookup sdm (reduce combination (range 7)) 7 1)))
+  '(0 1 2 3 5 6)
+
+  (map #(hdd/clj->vsa* [:?= (reduce combination (range 7)) %]) (range 7))
+  (0.06 0.04 0.08 0.09 0.02 0.05 0.08)
+
+  (hd/similarity
+   (hd/bind* (map hdd/clj->vsa* (range 7)))
+   (reduce combination (range 7)))
+
+
+
+  (hd/similarity
+   (hdd/clj->vsa* [:* :a :b])
+   (f/sum (combination :a :b)))
+
+
+
+
+  )
+
+
+
+
+
+
+
 
 
 (defn ->decider
@@ -11,8 +48,8 @@
                   [k (hdd/clj->vsa* k)]))))]
     (reify
       Decider
-        (decide [this input]
-          (prot/m-cleanup item-memory input)))))
+      (decide [this input]
+        (prot/m-cleanup item-memory input)))))
 
 (def action-decider (->decider [:left :right :halt :-]))
 (def state-decider (->decider [:s1 :s0]))

@@ -28,18 +28,18 @@
 
 
 
-
-
-
-
 ;; ---------------
 ;; hd/bind jvmhv pythonhv
 ;; -> jvmhv
 
 
 ;; hd/similarity
-;; ...
 ;;
+;; (similarity jvm-obj python-obj)
+;; expand to
+;; (similarity jvm-obj (->jvm python)
+
+
 
 ;; hd/bind pythonhv pythonhv
 ;; -> pythonhv

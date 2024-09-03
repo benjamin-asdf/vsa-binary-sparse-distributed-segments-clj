@@ -207,9 +207,6 @@
     (hd/->hv)
     1))
 
-
-
-
   (def a (hd/->hv))
 
   (torch/sum
@@ -220,6 +217,19 @@
       :word-length (long 1e4)})
     (hd/drop a 0.8)
     2))
+
+
+  (time
+   (torch/sum
+    (decode-address (->decoder-coo
+                     {:address-count (long 1e6)
+                      :address-density 0.000003
+                      :word-length (long 1e4)})
+                    (hd/->seed)
+                    1)))
+
+
+
 
   (float (/ (py.. (torch/sum (decode-address
                               (->decoder-coo
@@ -722,18 +732,18 @@
   (decode-address [this address decoder-threshold]))
 
 (defprotocol SDMStorage
-  (lookup-1
-    [this address-locations top-k opts]
-    [this address-locations top-k])
-  (write-1 [this address-locations content]))
+  (lookup-1 [this address-locations top-k opts]
+            [this address-locations top-k])
+  (write-1 [this address-locations content])
+  (storage-decay [this drop-chance]))
 
 (defprotocol SDM
   (known? [this address]
-          [this address decoder-threshold])
+    [this address decoder-threshold])
   (lookup [this address top-k]
-          [this address top-k decoder-threshold])
+    [this address top-k decoder-threshold])
   (converged-lookup [this address top-k]
-                    [this address top-k decoder-threshold])
+    [this address top-k decoder-threshold])
   (write [this address content]
     [this address content decoder-threshold]))
 
@@ -786,27 +796,70 @@
             (decode-address this address decoder-threshold)
             top-k)))))
 
+
+;; ----------------------------
+;; Decay content
+;; -----------------------------
+;;
+;; This is inspired by synapsembles
+;; https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3005627/
+;;
+;; This way we can model temporary memory
+;;
+;; This effectively gives every synapse a life time
+;; (in the aggregation of many content bits, one can calculate the half time)
+;;
+;; So you have a time-evolving variable or how that is called.
+;;
+(defn drop-random-indices-coo
+  [tensor drop-chance]
+  (let [tensor (py.. tensor (coalesce))
+        indices (py.. tensor indices)
+        indices-to-keep
+          (py.. (torch/nonzero (torch/ge
+                                 (torch/rand
+                                   [(py.. indices (size 1))]
+                                   :device
+                                   pyutils/*torch-device*)
+                                 drop-chance))
+                (view -1))
+        values (py.. tensor values)
+        new-indices
+          (torch/index_select indices 1 indices-to-keep)
+        new-values
+          (torch/index_select values 0 indices-to-keep)
+        new-tensor (torch/sparse_coo_tensor new-indices
+                                            new-values
+                                            (py.. tensor
+                                                  (size)))]
+    new-tensor))
+
+(comment
+  (torch/ge (torch/rand [10] :device pyutils/*torch-device*) 0.001))
+
 (defn ->sdm-storage-coo
   [{:keys [address-count word-length]}]
-  (let [content-matrix (->content-matrix-coo address-count
-                                             word-length)]
+  (let [content-matrix (atom (->content-matrix-coo
+                               address-count
+                               word-length))]
     (reify
       SDMStorage
         (write-1 [this address-locations content]
-          (write-coo! content-matrix
+          (write-coo! @content-matrix
                       address-locations
                       content))
-      (lookup-1
-          [this address-locations top-k]
-          (sdm-read-coo content-matrix
+        (lookup-1 [this address-locations top-k]
+          (sdm-read-coo @content-matrix
                         address-locations
                         top-k))
-      (lookup-1
-          [this address-locations top-k opts]
-          (sdm-read-coo content-matrix
+        (lookup-1 [this address-locations top-k opts]
+          (sdm-read-coo @content-matrix
                         address-locations
                         top-k
-                        opts)))))
+                        opts))
+        (storage-decay [this drop-chance]
+          (swap! content-matrix drop-random-indices-coo
+            drop-chance)))))
 
 ;; Not yet figured out.
 ;; is the same as 'iterative' lookup
@@ -815,33 +868,33 @@
   [sdm address
    {:keys [stop? top-k decoder-threshold max-steps]}]
   (reduce
-    (fn [{:as acc :keys [address result-xs]} n]
-      (let [next-outcome
-              (lookup sdm address top-k decoder-threshold)
-            {:keys [stop-reason success?]}
-              (stop? acc next-outcome)]
-        (if stop-reason
-          (cond (not success?) (ensure-reduced
-                                 (assoc acc
-                                   :stop-reason stop-reason
-                                   :stop-result
-                                     next-outcome))
-                success?
-                  (ensure-reduced
-                    (assoc acc
-                      :result-xs (conj result-xs
-                                       next-outcome)
-                      :success? true
-                      :stop-reason stop-reason
-                      :result-address (:result next-outcome)
-                      :address (:result next-outcome))))
-          {:address (:result next-outcome)
-           :n n
-           :result-xs (conj result-xs next-outcome)})))
-    {:address address
-     :result-xs [{:input? true :result address}]}
-    ;; taste
-    (range (or max-steps 7))))
+   (fn [{:as acc :keys [address result-xs]} n]
+     (let [next-outcome
+           (lookup sdm address top-k decoder-threshold)
+           {:keys [stop-reason success?]}
+           (stop? acc next-outcome)]
+       (if stop-reason
+         (cond (not success?) (ensure-reduced
+                               (assoc acc
+                                      :stop-reason stop-reason
+                                      :stop-result
+                                      next-outcome))
+               success?
+               (ensure-reduced
+                (assoc acc
+                       :result-xs (conj result-xs
+                                        next-outcome)
+                       :success? true
+                       :stop-reason stop-reason
+                       :result-address (:result next-outcome)
+                       :address (:result next-outcome))))
+         {:address (:result next-outcome)
+          :n n
+          :result-xs (conj result-xs next-outcome)})))
+   {:address address
+    :result-xs [{:input? true :result address}]}
+   ;; taste
+   (range (or max-steps 7))))
 
 (defn sparse-sdm
   [{:as opts :keys [decoder]}]
@@ -863,11 +916,6 @@
                     top-k)))))
 
 (def ->sdm sparse-sdm)
-
-
-
-
-
 
 
 ;; --------------------
@@ -1975,7 +2023,49 @@
                     top-k)))))
 
 
-;; -------------------------------------
+
+
+
+
+(comment
+  (->content-matrix-coo 10 10)
+  ;; (do (require-python '[drop-coo :refer
+  ;; [drop_random_rows_sparse_coo] :reload true])
+  ;;     (py..
+  ;;         (drop_random_rows_sparse_coo
+  ;;          (py.. (torch/ones [3 3]) (to_sparse))
+  ;;          0.5)
+  ;;         (to_dense)))
+  (def tensor (py.. (torch/ones [3 3]) (to_sparse)))
+  (drop-random-indices-coo
+   (py.. (torch/ones [3 3] :device :cuda) (to_sparse))
+   0.5)
+  (let [ ;; indices-to-keep (torch/arange 3)
+        tensor (py.. (torch/rand [3 3]) (to_sparse))
+        indices (py.. tensor indices)
+        indices-to-keep
+        (torch/tensor
+         (vec (into #{}
+                    (repeatedly
+                     (* 0.5 (py.. indices (size 1)))
+                     #(fm.rand/irand
+                       (py.. indices (size 1)))))))
+        values (py.. tensor values)
+        new-indices
+        (torch/index_select indices 1 indices-to-keep)
+        new-values
+        (torch/index_select values 0 indices-to-keep)
+        new-tensor (torch/sparse_coo_tensor new-indices
+                                            new-values
+                                            (py.. tensor
+                                              (size)))]
+    [tensor new-indices new-values (py.. tensor to_dense)
+     (py.. new-tensor to_dense)])
+  (fm.rand/->seq)
+  (fm.rand/irand 1)
+  (torch/sparse_coo_tensor (torch/ones [3 3]))
+  (torch/sparse_coo_tensor (torch/ones [3 3])))
+
 
 
 

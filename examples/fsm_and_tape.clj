@@ -1,6 +1,6 @@
 (ns fsm-and-tape
   (:require
-    [bennischwerdtner.sdm.sdm :as sdm]
+   [bennischwerdtner.sdm.sdm :as sdm]
     [tech.v3.datatype.functional :as f]
     [tech.v3.datatype :as dtype]
     [tech.v3.tensor :as dtt]
@@ -22,8 +22,6 @@
 (defn read-1
   [sdm addr top-k]
   (let [lookup-outcome (sdm/lookup sdm addr top-k 1)]
-    (def lookup-outcome lookup-outcome)
-
     (when (< 0.2 (:confidence lookup-outcome))
       (some-> lookup-outcome
               :result
@@ -44,7 +42,6 @@
 ;; read-tape
 ;; write, grows left and right
 ;;
-
 
 (defprotocol Tape
   (write [this s])
@@ -131,15 +128,12 @@
                                 input-symbol])
                 3)))))
 
-
-
 (comment
   ;; -----------------------------
   ;; Example data:
   ;;
   ;; This is a parity finder turing machine:
   ;;
-
   (def
     quintuples
     [[:s0 0    :s0    0 :right]
@@ -194,7 +188,8 @@
 (defn sdm-get-create
   ([sdm addr] (sdm-get-create sdm addr 1))
   ([sdm addr top-k]
-   (let [content (read-1 sdm addr top-k)]
+   (let [content
+         (read-1 sdm addr top-k)]
      ;;
      ;; This could be implemented by pre-allocated
      ;; random seeds.
@@ -208,7 +203,8 @@
      ;; look instead. But I still feel entitled to call
      ;; it biologically principled.
      ;;
-     (when-not content (sdm/write sdm addr (hd/->seed) 1))
+     (when-not content
+       (sdm/write sdm addr (hd/->seed) 1))
      {:existed? (boolean content)
       :target (read-1 sdm addr top-k)})))
 
@@ -307,6 +303,8 @@
      (doseq [_ initial-tape] (move res :left))
      res)))
 
+
+
 ;; ---------------------------------
 ;;
 
@@ -379,8 +377,8 @@
           2)
     (hdd/cleanup* (read-tape tape 2)))
   '(:a :c)
-  s)
-
+  s
+  )
 
 (defn turing-machine
   [{:as turing-machine
@@ -421,6 +419,7 @@
         :current-state (hdd/clj->vsa* initial-state)
         :tape tape))
     (if max-steps (range max-steps) (range))))
+
 
 
 ;; ----
@@ -493,6 +492,8 @@
               :initial-tape [1 :b]})))
     (hdd/cleanup* (:output (peek outcomes))))
 '(false)
+
+
 
 (do (def outcomes
       (into []
@@ -628,4 +629,17 @@
 ;; dare I say perhaps creative and be
 ;; selected in mode 2
 ;;
+;;
+
+
+(comment
+  (def sdm (sdm/->sdm {:address-count (long 1e6)
+                       :address-density 0.000003
+                       :word-length (long 1e4)}))
+  (time (sdm/write sdm (hd/->seed) (hd/->seed) 1)))
+
+
+;; questions:
+;; - how to branch
+;; - how to jump
 ;;

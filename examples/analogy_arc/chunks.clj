@@ -5,13 +5,17 @@
     [tech.v3.tensor :as dtt]
     [tech.v3.datatype.bitmap :as bitmap]
     [fastmath.random :as fm.rand]
+    [fastmath.core :as fm]
+    [bennischwerdtner.sdm.sdm :as sdm]
     [bennischwerdtner.hd.binary-sparse-segmented :as hd]
     [bennischwerdtner.pyutils :as pyutils]
     [tech.v3.datatype.unary-pred :as unary-pred]
     [tech.v3.datatype.argops :as dtype-argops]
     [bennischwerdtner.hd.codebook-item-memory :as codebook]
     [bennischwerdtner.hd.ui.audio :as audio]
-    [bennischwerdtner.hd.data :as hdd]))
+    [bennischwerdtner.hd.data :as hdd]
+    [libpython-clj2.require :refer [require-python]]
+    [libpython-clj2.python :refer [py. py..] :as py]))
 
 (alter-var-root
  #'hdd/*item-memory*
@@ -48,9 +52,6 @@
 
 (defprotocol Mover
   (effect [this world]))
-
-
-
 
 
 
@@ -246,3 +247,28 @@
 ;;
 (* 60 18)
 ;;
+
+
+(do (def m
+      (sdm/k-fold-sdm {:address-count (long 1e5)
+                       :address-density 0.00003
+                       :k-delays 2
+                       :word-length (long 1e4)}))
+    ;; k-fold sequence:        a->b
+    ;;                            b->c
+    ;;                         a---->c
+    ;;
+    ;;
+    (sdm/write m (hdd/clj->vsa* :a) (hdd/clj->vsa* :b) 1)
+    (sdm/write m (hdd/clj->vsa* :b) (hdd/clj->vsa* :c) 1)
+    (sdm/write m (hdd/clj->vsa* :a) (hdd/clj->vsa* :a) 1)
+    (doseq [n (range 200)]
+      (sdm/write m (hdd/clj->vsa* n) (hdd/clj->vsa* n) 1))
+
+    (for [n (range 3)]
+      (hdd/cleanup*
+       (:result
+        (sdm/lookup m (hdd/clj->vsa* :a) 3 1)))))
+
+
+'((:a :b 28 131) (:a :b :c 0) (:a :b :c 0))

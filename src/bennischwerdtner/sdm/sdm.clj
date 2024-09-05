@@ -198,26 +198,6 @@
     2))
 
 
-  (torch/sum
-   (decode-address
-    (->decoder-coo
-     {:address-count (long 1e5)
-      :address-density 0.002
-      :word-length (long 1e4)})
-    (hd/->hv)
-    1))
-
-  (def a (hd/->hv))
-
-  (torch/sum
-   (decode-address
-    (->decoder-coo
-     {:address-count (long 1e5)
-      :address-density 0.003
-      :word-length (long 1e4)})
-    (hd/drop a 0.8)
-    2))
-
 
   (time
    (torch/sum
@@ -227,6 +207,31 @@
                       :word-length (long 1e4)})
                     (hd/->seed)
                     1)))
+
+  (py..
+      (torch/sum
+       (decode-address
+        (->decoder-coo {:address-count (long 1e6)
+                        :address-density 0.0005
+                        :word-length (long 1e4)})
+        (hd/->hv)
+        3))
+      item)
+
+
+  (py..
+      (torch/sum
+       (decode-address
+        (->decoder-coo
+         {:address-count (long 1e6)
+          :address-density 0.00003
+          :word-length (long 1e4)})
+        (hd/drop (hd/->hv) 0.5)
+        1))
+      item)
+
+
+
 
 
 
@@ -240,6 +245,8 @@
                               1))
               item)
             10))
+
+
 
 
   (float

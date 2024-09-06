@@ -42,7 +42,7 @@
              (torch/tensor t-numpy
                            :dtype torch/float32
                            :device torch-device))
-         (= (py/python-type tens) :tensor) tens)))
+           (= (py/python-type tens) :tensor) tens)))
 
 (defn torch-memory-size
   [t]

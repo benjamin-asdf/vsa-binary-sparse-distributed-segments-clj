@@ -63,7 +63,6 @@
         idxs (py.. (torch/nonzero mask) (squeeze 1))]
     (pyutils/torch->jvm idxs)))
 
-
 (defn codebook-item-memory
   [n-seeds]
   (let [lut (atom {})
@@ -106,30 +105,7 @@
         (map :k (m-cleanup-verbose this q threshold)))
       (m-cleanup* [this q] (m-cleanup* this q 0.18)))))
 
-
 (comment
   (hdc/preallocated-alphabet 1)
   (def m (codebook-item-memory 10))
   (prot/m-cleanup-verbose m (prot/m-clj->vsa m :foo) 0.2))
-
-(comment
-  (pyutils/ensure-torch (hd/->seed))
-  (def t-nump (numpy/zeros [10]))
-  (def tens (dtt/->tensor (range 10) :datatype :int8))
-  (torch/argsort
-   (torch/mv
-    (torch/tensor
-     [[0 1 0]
-      [0 1 1]])
-    (torch/tensor [0 1 1])))
-
-  (py..
-      (torch/argmax (torch/mv (torch/tensor [[0 1 0]
-                                             [0 1 1]])
-                              (torch/tensor [0 1 1])))
-      item)
-
-  (torch/div
-   (torch/mv (torch/tensor [[0 1 0 0] [0 1 1 1]])
-             (torch/tensor [0 1 1 0]))
-   2))

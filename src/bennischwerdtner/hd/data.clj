@@ -1933,13 +1933,3 @@
   ;; - 2. perhaps there would be, depending on the amount of objects represented?
 
   )
-
-
-
-
-(comment
-
-
-
-
-  )

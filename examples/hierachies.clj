@@ -752,3 +752,16 @@
 ;; - https://www.sciencedirect.com/science/article/pii/S009286742031388X
 ;;
 ;; - https://pubmed.ncbi.nlm.nih.gov/15105494/
+
+
+(comment
+  (time
+   (do
+     (def m (sdm/->sdm
+             {:address-count (long 1e6)
+              :address-density 0.000003
+              :word-length (long 1e4)}))
+     (dotimes [n 500]
+       (sdm/write m (hd/->seed) (hd/->seed) 1))
+     (dotimes [n 500]
+       (sdm/lookup m (hd/->seed) 1 1)))))

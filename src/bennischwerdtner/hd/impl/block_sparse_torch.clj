@@ -41,6 +41,7 @@
       (py.. (torch/zeros [batch-size segment-count
                           segment-length]
                          :dtype torch/int8
+                         ;; :dtype torch/float32
                          :device *torch-device*)
             (scatter_ -1 (torch/unsqueeze indices -1) 1)
             (view batch-size N)))))

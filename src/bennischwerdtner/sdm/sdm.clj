@@ -414,13 +414,16 @@
                          :dtype torch/bool
                          :device *torch-device*)]
     (py/with-gil-stack-rc-context
-      (let [address (pyutils/ensure-torch address)
+      (let [address (py.. (pyutils/ensure-torch address)
+                          (to :dtype torch/float32))
             inputs (torch/mv address-matrix address)
             activations (torch/ge inputs decoder-threshold)]
         (py.. out (copy_ activations))
         out))))
 
 (comment
+  (decode-addresses-coo address-matrix address decoder-threshold)
+
   (decode-addresses (->address-matrix 3 3 0)
                     (torch/tensor [0 1 1]
                                   :dtype torch/float16
@@ -430,18 +433,18 @@
                         (torch/tensor [0 1 1]
                                       :dtype torch/float32
                                       :device
-                                        *torch-device*)
+                                      *torch-device*)
                         1)
   (decode-addresses-coo (->address-matrix-coo 3 3 0.5)
                         (torch/tensor [0 1 1]
                                       :dtype torch/float
                                       :device
-                                        *torch-device*)
+                                      *torch-device*)
                         1)
   (py.. (torch/tensor [0 1 1]
                       :dtype torch/float
                       :device *torch-device*)
-        -dtype))
+    -dtype))
 
 
 ;; ---------------------------------
@@ -511,8 +514,6 @@
           (py.. content-matrix (add_ update) (coalesce))]
       (py.. _content-matrix values (clamp_ 0 counter-max))
       content-matrix)))
-
-
 
 (defn read-coo-1
   "

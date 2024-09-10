@@ -17,7 +17,8 @@
              [ItemMemory m-clj->vsa m-cleanup m-cleanup*
               m-cleanup-verbose]]))
 
-(def ^ :dynamic *item-memory*)
+(def ^:dynamic *item-memory*
+  (item-memory/codebook-item-memory 1000))
 
 (defn clj->vsa [obj] (m-clj->vsa *item-memory* obj))
 (defn cleanup-verbose

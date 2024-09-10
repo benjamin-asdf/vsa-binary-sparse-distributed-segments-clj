@@ -17,19 +17,21 @@
 
 (def default-opts
   "Default opts for (binary sparse distributed, segmented) BSDC-SEG vector operations."
-  #_(let [dimensions (long 1e4)
-          ;; Rachkovskij (2001) showed that this value
-          ;; works well, therefore we use it
-          density-probability (/ 1 (fm/sqrt dimensions))
-          ;; segment count == non-zero bits count
-          segment-count (long (* dimensions
-                                 density-probability))]
-      {:bsdc-seg/N dimensions
-       :bsdc-seg/density-probability density-probability
-       :bsdc-seg/segment-count segment-count
-       :bsdc-seg/segment-length (/ dimensions
-                                   segment-count)})
-  ;; I started enjoying the daringness of making x
+  ;; (let [dimensions (long 1e4)
+  ;;         ;; Rachkovskij (2001) showed that this
+  ;;         value ;; works well, therefore we use it
+  ;;         density-probability (/ 1 (fm/sqrt
+  ;;         dimensions))
+  ;;         ;; segment count == non-zero bits count
+  ;;         segment-count (long (* dimensions
+  ;;                                density-probability))]
+  ;;     {:bsdc-seg/N dimensions
+  ;;      :bsdc-seg/density-probability
+  ;;      density-probability :bsdc-seg/segment-count
+  ;;      segment-count :bsdc-seg/segment-length (/
+  ;;      dimensions
+  ;;                                  segment-count)})
+  ;; I started enjoying the daringness of making this
   ;; 20
   (let [dimensions (long 1e4)
         segment-count 20]
@@ -131,15 +133,7 @@
   (let [a (impl.torch/seed default-opts)]
     (-similarity (-permute (-permute a 1) -1) a))
 
-
-
-
-
-  (bind (seed) (seed))
-
-
-
-  )
+  (bind (seed) (seed)))
 
 
 ;; ----------------------

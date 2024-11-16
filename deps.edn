@@ -7,6 +7,5 @@
  :deps {clj-python/libpython-clj {:mvn/version "2.025"}
         cnuernber/dtype-next {:mvn/version "10.113"}
         generateme/fastmath {:mvn/version "2.4.0"}
-        org.clojure/math.combinatorics {:mvn/version
-                                        "0.3.0"}}
+       }
  :paths ["src"]}

@@ -12,21 +12,26 @@
 
 (defn play!
   [audio]
-  (clojure.java.shell/sh
-    "ffplay"
-    "-nodisp"
-    "-f"
-    "lavfi"
-    "-i"
-    (str "sine=frequency=" (:frequency audio)
-         ":duration=" (:duration audio))
-    "-autoexit"))
+  (if (sequential? audio)
+    (when (seq audio)
+      (play! (first audio))
+      (play! (rest audio)))
+    (clojure.java.shell/sh
+      "ffplay"
+      "-nodisp"
+      "-f"
+      "lavfi"
+      "-i"
+      (str "sine=frequency=" (:frequency audio)
+           ":duration=" (:duration audio))
+      "-autoexit")))
 
 (comment
   (play! (->audio {:frequency 440 :duration 0.2}))
   (play! (->audio {:frequency 1200 :duration 0.2}))
   (play! (->audio {:frequency 80 :duration 0.2}))
-  (play! (->audio {:frequency 250 :duration 0.2})))
+  (play! (->audio {:frequency 250 :duration 0.2}))
+  )
 
 (defn render-hd-frequency
   [hd]

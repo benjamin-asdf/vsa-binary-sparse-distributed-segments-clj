@@ -155,10 +155,6 @@
 
 
 
-
-
-
-
 (comment
   (do
     (def glue (glue-sdm {:address-count 100 :address-density 0.2 :word-length (long 1e4)}))
@@ -252,9 +248,6 @@
   ;; 1k takes
   ;; 83.5s
   ;; kinda slow
-
-
-
 
 
   )

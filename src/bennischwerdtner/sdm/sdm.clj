@@ -186,8 +186,6 @@
   ;; (ideal-p 1e3 1e6)
   ;; 7.937005259841001E-4
 
-
-
   (torch/sum
    (decode-address
     (->decoder-coo
@@ -199,14 +197,15 @@
 
 
 
-  (time
-   (torch/sum
-    (decode-address (->decoder-coo
-                     {:address-count (long 1e6)
-                      :address-density 0.000003
-                      :word-length (long 1e4)})
-                    (hd/->seed)
-                    1)))
+  (torch/sum
+   (decode-address (->decoder-coo
+                    {:address-count (long 1e6)
+                     :address-density 0.000003
+                     :word-length (long 1e4)})
+                   (hd/->seed)
+                   1))
+
+
 
   (py..
       (torch/sum
@@ -229,8 +228,6 @@
         (hd/drop (hd/->hv) 0.5)
         1))
       item)
-
-
 
 
 
@@ -410,13 +407,22 @@
 
 (defn decode-addresses-coo
   [address-matrix address decoder-threshold]
-  (let [out (torch/zeros [(py.. address-matrix (size 0))]
+  (let [N (py.. address-matrix (size 1))
+        addresses (py.. address (view -1 N))
+        out (torch/zeros [(py.. addresses (size 0))
+                          (py.. address-matrix (size 0))]
                          :dtype torch/bool
                          :device *torch-device*)]
     (py/with-gil-stack-rc-context
-      (let [address (py.. (pyutils/ensure-torch address)
-                          (to :dtype torch/float32))
-            inputs (torch/mv address-matrix address)
+      (let [addresses (py.. (pyutils/ensure-torch addresses)
+                            (to :dtype torch/float32))
+            inputs (torch/stack
+                     ;; sparse coo doesn't have a batch
+                     ;; mv
+                     (into []
+                           (for [adr addresses]
+                             (torch/mv address-matrix
+                                       adr))))
             activations (torch/ge inputs decoder-threshold)]
         (py.. out (copy_ activations))
         out))))
@@ -489,31 +495,51 @@
 ;; Will need to think about overflow for a moment though.
 ;; ---
 (defn write-coo!
+  "Has broadcast semantics for `input-word`."
   [content-matrix address-locations input-word]
-  (py/with-gil-stack-rc-context
-    (let [;; btw, this causes host-device
-          ;; synchronization
-          ;; (doesn't matter here yet because I have
-          ;; datatransfers all the time anyway)
-          activated-locations
-          (py.. (torch/nonzero address-locations) (view -1))
-          word-nonzero (py.. (torch/nonzero (pyutils/ensure-torch input-word))
-                         (view -1))
-          indices (py.. (torch/cartesian_prod
-                         activated-locations
-                         word-nonzero)
-                    (t))
-          values (torch/ones (py.. indices (size 1))
-                             :dtype torch/uint8
-                             :device *torch-device*)
-          update (torch/sparse_coo_tensor
-                  indices
-                  values
-                  (py.. content-matrix size))
-          _content-matrix
-          (py.. content-matrix (add_ update) (coalesce))]
-      (py.. _content-matrix values (clamp_ 0 counter-max))
-      content-matrix)))
+  (let [address-locations (pyutils/ensure-torch
+                            address-locations)
+        input-word (pyutils/ensure-torch input-word)]
+    (py/with-gil-stack-rc-context
+      (let [[M U] (into [] (py.. content-matrix (size)))
+            address-locations-1 (py.. address-locations
+                                      (view -1 M))
+            batch-size (py.. address-locations-1 (size 0))
+            input-word (torch/broadcast_to input-word
+                                           [batch-size U])]
+        (doseq [batch-idx (range batch-size)]
+          (let [address-locations-1 (py/get-item
+                                      address-locations-1
+                                      batch-idx)
+                input-word (py/get-item input-word
+                                        batch-idx)
+                ;; -----------------------------------
+                ;; makes a host-device synchronization
+                ;; ----------------------------------
+                activated-locations
+                  (py.. (torch/nonzero address-locations-1)
+                        (view -1))
+                word-nonzero (py.. (torch/nonzero
+                                     input-word)
+                                   (view -1))
+                indices (py.. (torch/cartesian_prod
+                                activated-locations
+                                word-nonzero)
+                              (t))
+                values (torch/ones (py.. indices (size 1))
+                                   :dtype torch/uint8
+                                   :device *torch-device*)
+                update (torch/sparse_coo_tensor indices
+                                                values
+                                                [M U])]
+            (py.. content-matrix (add_ update))))
+        (py.. content-matrix
+              (coalesce)
+              values
+              (clamp_ 0 counter-max))
+        content-matrix))))
+
+;; --------------------------------------
 
 (defn read-coo-1
   "
@@ -549,6 +575,13 @@
 
   "
   [content-matrix address-locations]
+  ;; (1000 times write and read)
+  ;; "Elapsed time: 3649.408776 msecs"
+  ;; (let
+  ;;     [mask (py.. address-locations (float))]
+  ;;     (torch/matmul mask (py.. content-matrix
+  ;;                          (float))))
+  ;; "Elapsed time: 3010.933935 msecs"
   (let [addr-indices (torch/squeeze (torch/nonzero
                                      address-locations)
                                     1)
@@ -557,7 +590,7 @@
                                0
                                addr-indices)
                               0)
-               (to_dense))]
+                   (to_dense))]
     sums))
 
 (defn ensure-cpu [tens]
@@ -638,59 +671,93 @@
                  hd/default-opts))
   ([content-matrix address-locations top-k
     {:bsdc-seg/keys [segment-count segment-length N]}]
-   (let [out (torch/zeros [N] :device *torch-device*)]
-     ;; you must be careful to not let python objects
-     ;; escape the rc-context, this is the reason why
-     ;; we do this datatransfer at the end,
-     ;; (it's a very fast operation gpu->gpu)
-     (py/with-gil-stack-rc-context
-       (let [s (read-coo-1 content-matrix address-locations)
-             topk-result
-             (-> s
-                 (torch/reshape [segment-count
-                                 segment-length])
-                 (torch/topk (min top-k segment-length)))
-             result (torch/scatter
-                     (torch/zeros [segment-count
-                                   segment-length]
-                                  :device
-                                  *torch-device*)
-                     1
-                     (py.. topk-result -indices)
-                     1)
-             address-location-count
-             (py.. (torch/sum address-locations) item)]
-         {:address-location-count address-location-count
-          :confidence (if (zero? address-location-count)
-                        0
-                        (py.. (torch/div
-                               (torch/sum (py.. topk-result
-                                            -values))
-                               ;; also divide by top-k?
-                               ;;
-                               ;; scaling this with the
-                               ;; address-locations
-                               ;; count is probably
-                               ;; taste. It turns out
-                               ;; to say high
-                               ;; confidence, if the
-                               ;; count of address is
-                               ;; low, when the address
-                               ;; is a
-                               ;; 'weak' (sub sparsity)
-                               ;; hypervector. The
-                               ;; caller would have to
-                               ;; take this into
-                               ;; account themselves.
-                               ;;
-                               (* segment-count address-location-count))
-                          item))
-          :result
-          (do
-            ;; you don't need to synchronize cuda
-            ;; here apparently
-            (py.. out (copy_ (torch/reshape result [N])))
-            out)})))))
+   (def content-matrix content-matrix)
+   (let [[M U] (into [] (py.. content-matrix (size)))
+         address-locations (py.. address-locations
+                             (view -1 M))
+         batch-size (py.. address-locations (size 0))
+         outcomes
+         (doall
+          (for [batch-idx (range batch-size)]
+            (let [out (torch/zeros [N]
+                                   :device
+                                   *torch-device*)
+                  address-locations (py/get-item
+                                     address-locations
+                                     batch-idx)]
+              ;; you must be careful to not let
+              ;; python objects escape the
+              ;; rc-context, this is the reason why
+              ;; we do this datatransfer at the end,
+              ;; (it's a very fast operation
+              ;; gpu->gpu)
+              (py/with-gil-stack-rc-context
+                (let [s (read-coo-1 content-matrix
+                                    address-locations)
+                      topk-result
+                      (-> s
+                          (torch/reshape
+                           [segment-count
+                            segment-length])
+                          (torch/topk
+                           (min top-k
+                                segment-length)))
+                      result
+                      (torch/scatter
+                       (torch/zeros [segment-count
+                                     segment-length]
+                                    :device
+                                    *torch-device*)
+                       1
+                       (py.. topk-result -indices)
+                       1)
+                      address-location-count
+                      (do (def the-addr-locations
+                            address-locations)
+                          (py.. (torch/sum
+                                 address-locations)
+                            item))]
+                  {:address-location-count
+                   address-location-count
+                   :confidence
+                   (if (zero? address-location-count)
+                     0
+                     (py..
+                         (torch/div
+                          (torch/sum (py.. topk-result
+                                       -values))
+                          ;; also divide by top-k?
+                          ;;
+                          ;; scaling this with the
+                          ;; address-locations
+                          ;; count is probably
+                          ;; taste. It turns out
+                          ;; to say high
+                          ;; confidence, if the
+                          ;; count of address is
+                          ;; low, when the address
+                          ;; is a
+                          ;; 'weak' (sub sparsity)
+                          ;; hypervector. The
+                          ;; caller would have to
+                          ;; take this into
+                          ;; account themselves.
+                          ;;
+                          (* segment-count
+                             address-location-count))
+                         item))
+                   :result (do
+                             ;; you don't need to
+                             ;; synchronize cuda here
+                             ;; apparently
+                             (py.. out
+                               (copy_ (torch/reshape
+                                       result
+                                       [N])))
+                             out)})))))]
+     (if (= 1 batch-size)
+       (first outcomes)
+       (into [] outcomes)))))
 
 (defn sdm-read
   "See [[sdm-read-coo]]"
@@ -747,13 +814,14 @@
 
 (defprotocol SDM
   (known? [this address]
-    [this address decoder-threshold])
+          [this address decoder-threshold])
   (lookup [this address top-k]
-    [this address top-k decoder-threshold])
+          [this address top-k decoder-threshold])
   (converged-lookup [this address top-k]
-    [this address top-k decoder-threshold])
+                    [this address top-k decoder-threshold])
   (write [this address content]
-    [this address content decoder-threshold]))
+         [this address content decoder-threshold])
+  (decay [this drop-chance]))
 
 (defn ->decoder-coo
   [{:keys [address-count word-length address-density]}]
@@ -824,23 +892,25 @@
   (let [tensor (py.. tensor (coalesce))
         indices (py.. tensor indices)
         indices-to-keep
-          (py.. (torch/nonzero (torch/ge
-                                 (torch/rand
-                                   [(py.. indices (size 1))]
-                                   :device
-                                   pyutils/*torch-device*)
-                                 drop-chance))
-                (view -1))
+        (py.. (torch/nonzero (torch/ge
+                              (torch/rand
+                               [(py.. indices (size 1))]
+                               :device
+                               pyutils/*torch-device*)
+                              drop-chance))
+          (view -1))
         values (py.. tensor values)
         new-indices
-          (torch/index_select indices 1 indices-to-keep)
+        (torch/index_select indices 1 indices-to-keep)
         new-values
-          (torch/index_select values 0 indices-to-keep)
+        (torch/index_select values 0 indices-to-keep)
         new-tensor (torch/sparse_coo_tensor new-indices
                                             new-values
                                             (py.. tensor
-                                                  (size)))]
+                                              (size)))]
+    ;; (def new-tensor new-tensor)
     new-tensor))
+
 
 (comment
   (torch/ge (torch/rand [10] :device pyutils/*torch-device*) 0.001))
@@ -921,7 +991,9 @@
                     (decode-address decoder
                                     address
                                     decoder-threshold)
-                    top-k)))))
+                    top-k))
+        (decay [this drop-chance]
+          (storage-decay storage drop-chance)))))
 
 (def ->sdm sparse-sdm)
 
@@ -2103,3 +2175,26 @@
 ;; 5
 ;; https://nextjournal.com/cdeln/reference-counting-in-clojure
 ;;
+
+
+(comment
+  (torch/nonzero address-locations)
+  (torch/group_norm)
+  (torch/argwhere address-locations)
+
+  (let [mask (py.. address-locations (float))]
+    (torch/matmul mask (py.. content-matrix (float))))
+
+  (let [addr-indices
+        (torch/squeeze (torch/nonzero address-locations) 1)
+        sums (py.. (torch/sum (torch/index_select
+                               content-matrix
+                               0
+                               addr-indices)
+                              0)
+               (to_dense))]
+    sums)
+
+
+
+  )

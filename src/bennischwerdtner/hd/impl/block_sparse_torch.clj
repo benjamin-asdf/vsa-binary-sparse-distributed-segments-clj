@@ -23,28 +23,18 @@
   (require-python '[torch.sparse :as torch.sparse])
   (require '[libpython-clj2.python.np-array]))
 
-(defn squeeze-batch
-  [tens]
-  (if (= 1 (py.. tens (size 0)))
-    (torch/squeeze tens 0)
-    tens))
-
-;; ----------------------------
-;;
-
 (defn indices->hv
   [{:bsdc-seg/keys [segment-count segment-length N]}
    indices]
-  (squeeze-batch
-    (let [indices (py.. indices (view -1 segment-count))
-          batch-size (py.. indices (size 0))]
-      (py.. (torch/zeros [batch-size segment-count
-                          segment-length]
-                         :dtype torch/int8
-                         ;; :dtype torch/float32
-                         :device *torch-device*)
-            (scatter_ -1 (torch/unsqueeze indices -1) 1)
-            (view batch-size N)))))
+  (let [indices (py.. indices (view -1 segment-count))
+        batch-size (py.. indices (size 0))]
+    (py.. (torch/zeros [batch-size segment-count
+                        segment-length]
+                       :dtype torch/int8
+                       ;; :dtype torch/float32
+                       :device *torch-device*)
+          (scatter_ -1 (torch/unsqueeze indices -1) 1)
+          (view batch-size N))))
 
 (defn seed
   ([opts] (seed opts 1))
@@ -60,6 +50,14 @@
                                #(fm.rand/irand
                                  segment-length)))))
                  :device *torch-device*))))
+
+(defn ->empty
+  ([opts] (->empty opts 1))
+  ([{:as opts
+     :bsdc-seg/keys [segment-count segment-length N]}
+    batch-size]
+   (torch/zeros [batch-size N] :device *torch-device*)))
+
 (defn hv?
   [{:as opts
     :bsdc-seg/keys [segment-count segment-length N]} x]
@@ -113,16 +111,15 @@
     :bsdc-seg/keys [segment-count segment-length N]} a n]
   (-> (py.. a (view -1 segment-count segment-length))
       (torch/roll n :dims -1)
-      (py.. (view -1 N))
-      (squeeze-batch)))
+      (py.. (view -1 N))))
 
 (defn superposition
   [{:bsdc-seg/keys [segment-length segment-count N]} tensor
    tensors]
-  (squeeze-batch
-   (torch/sum (py.. (torch/stack (vec (concat [tensor] tensors)))
-                (view -1 N))
-              0)))
+  (torch/sum (py.. (torch/stack (vec (concat [tensor]
+                                             tensors)))
+                   (view -1 N))
+             0))
 
 (defn thin
   [{:as opts
@@ -134,28 +131,15 @@
 
 ;; -----------------------------------
 
+(defn dot-similarity
+  [a others]
+  (let [a (py.. a (to :dtype torch/int8))
+        others (py.. others (to :dtype torch/int8))]
+    (torch/sum (torch/bitwise_and a others) :dim -1)))
+
 (defn similarity
-  [{:bsdc-seg/keys [segment-count]} a b]
-  (/ (py.. (torch/sum (torch/bitwise_and
-                       (py.. a (to :dtype torch/int8))
-                       (py.. b (to :dtype torch/int8))))
-       item)
-     segment-count)
-  ;; would be taste,
-  ;; After superposition, a vector can have values of more than 1.
-  ;; This is useful to model multisets.
-  ;; Should this be similar or not similar?
-  ;; Probably, it should.
-  ;; But user could clamp themselves if they know
-  ;;
-  ;;
-  ;;
-  ;; (/ (py.. (torch/sum (torch/bitwise_and
-  ;;                       (torch/clamp_max a 1)
-  ;;                       (torch/clamp_max b 1)))
-  ;;          (item))
-  ;;    segment-count)
-  )
+  [{:bsdc-seg/keys [segment-count]} a others]
+  (torch/div (dot-similarity a others) segment-count))
 
 ;; -------------------------------------
 
@@ -167,6 +151,49 @@
                          drop-prob)
                (torch/zeros_like a)
                a))
+
+(defn keep-segments
+  [{:bsdc-seg/keys [segment-count segment-length N]} a
+   segment-keep-count]
+  (let [segment-indices (torch/arange segment-count
+                                      :device
+                                      *torch-device*)
+        kept-segments (torch/ge segment-indices
+                                segment-keep-count)
+        mask (torch/repeat_interleave kept-segments
+                                      segment-length)
+        mask (torch/broadcast_to mask (py.. a (size)))]
+    (torch/where mask a (torch/zeros_like a))))
+
+;; -----------------------------------------------------------
+
+(defn level
+  [{:as opts :bsdc-seg/keys [segment-count]} num-levels]
+  (let [seeds (seed opts 2)
+        bin-len (/ segment-count num-levels)]
+    (torch/stack
+     (into []
+           (for [n (range num-levels)]
+             (let [segments-a (* bin-len n)
+                   segments-b (- segment-count
+                   segments-a)]
+               (superposition
+                opts
+                (keep-segments opts
+                               (py/get-item seeds 0)
+                               segments-a)
+                [(keep-segments opts
+                                (py/get-item seeds
+                                1)
+                                segments-b)]))))))
+  ;; (let [seeds (seed opts 2)
+  ;;       bin-len (/ segment-count num-levels)]
+  ;;   (into []
+  ;;         (for [n (range num-levels)]
+  ;;           (let [segments-a (* bin-len n)
+  ;;                 segments-b (- segment-count segments-a)]
+  ;;             [:a segments-a :b segments-b]))))
+  )
 
 ;; -----------------------------------------------------------
 

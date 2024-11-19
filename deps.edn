@@ -6,6 +6,6 @@
                        "1.91.1392"}}}}
  :deps {clj-python/libpython-clj {:mvn/version "2.025"}
         cnuernber/dtype-next {:mvn/version "10.113"}
-        generateme/fastmath {:mvn/version "2.4.0"}
-       }
+        techascent/tech.ml.dataset {:mvn/version "7.032"}
+        generateme/fastmath {:mvn/version "2.4.0"}}
  :paths ["src"]}

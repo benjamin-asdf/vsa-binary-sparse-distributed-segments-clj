@@ -1,5 +1,5 @@
 (ns bennischwerdtner.hd.core
-  (:refer-clojure :exclude [drop])
+  (:refer-clojure :exclude [drop keep])
   (:require
    [tech.v3.datatype.unary-pred :as unary-pred]
    [tech.v3.datatype.functional :as f]
@@ -84,6 +84,18 @@
    (case default-implementation
      :torch (impl.torch/seed default-opts batch-size))))
 
+;; alias 'identity' (the identity element for bind operation).
+(defn ->empty
+  ([] (->empty 1))
+  ([batch-size]
+   (case default-implementation
+     :torch (impl.torch/->empty default-opts batch-size))))
+
+(defn level
+  [num-levels]
+  (case default-implementation
+    :torch (impl.torch/level default-opts num-levels)))
+
 (defn bind
   ([x] (-bind x []))
   ([x other] (-bind x [other]))
@@ -107,6 +119,9 @@
 (defn drop [x drop-chance]
   (-drop x drop-chance))
 
+(defn keep [x keep-chance]
+  (-drop x (- 1 keep-chance)))
+
 (defn hv? [x]
   (-hv? x))
 
@@ -122,8 +137,6 @@
 ;;     [this query]
 ;;     [this query threshold])
 ;;   ())
-
-
 
 (comment
   (py.. (first (seed 10)) (nelement))

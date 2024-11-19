@@ -19,7 +19,6 @@
     [*torch-device*]]
    [bennischwerdtner.hd.hdc :as hdc]))
 
-
 (def available
   (try
     (require-python '[numpy :as np])

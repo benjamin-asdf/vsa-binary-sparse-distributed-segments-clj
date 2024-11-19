@@ -15,6 +15,9 @@
             [bennischwerdtner.hd.data :as hdd]))
 
 
+
+
+
 ;;
 ;; Followup of what-is-the-abc-that-starts-with-j
 ;;
@@ -126,6 +129,7 @@
           :identity (hdd/clj->vsa :identity)})))
 
 (def cleanup-action #(hdd/m-cleanup actions-item-memory %))
+
 
 (def actions [:left :right :identity])
 

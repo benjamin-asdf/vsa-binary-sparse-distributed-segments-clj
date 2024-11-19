@@ -1,25 +1,21 @@
 (ns iris-sdm
-  (:require
-   [tech.v3.datatype.functional :as f]
-   [tech.v3.datatype :as dtype]
-   [tech.v3.tensor :as dtt]
-   [tech.v3.datatype.bitmap :as bitmap]
-   [fastmath.random :as fm.rand]
-   [fastmath.core :as fm]
-   [bennischwerdtner.sdm.sdm :as sdm]
-   [bennischwerdtner.hd.core :as hd]
-   [bennischwerdtner.pyutils :as pyutils]
-   [tech.v3.datatype.unary-pred :as unary-pred]
-   [tech.v3.datatype.argops :as dtype-argops]
-   [bennischwerdtner.hd.codebook-item-memory :as codebook]
-   [bennischwerdtner.hd.ui.audio :as audio]
-   [bennischwerdtner.hd.data :as hdd]
-   [libpython-clj2.require :refer [require-python]]
-   [libpython-clj2.python :refer [py. py..] :as py]
-   [tech.v3.dataset :as ds]))
+  (:require [tech.v3.datatype.functional :as f]
+            [bennischwerdtner.sdm.sdm :as sdm]
+            [bennischwerdtner.hd.core :as hd]
+            [bennischwerdtner.pyutils :as pyutils]
+            [libpython-clj2.python :refer [py. py..] :as py]
+            [libpython-clj2.require :refer [require-python]]
+            [tech.v3.dataset :as ds]))
+
+(require-python '[torch :as torch])
 
 ;; iris classifier with SDM
 ;; ------------------------------------------------
+
+(def species ["Iris-setosa" "Iris-versicolor" "Iris-virginica"])
+(def feature-names ["SepalLengthCm" "SepalWidthCm" "PetalLengthCm" "PetalWidthCm"])
+
+;; -------------------------------
 
 (defn norm
   "Normalize a value to exist between 0 and 1 (inclusive)."
@@ -38,14 +34,17 @@
 
 ;; ---------------------------------------------------
 
+(declare num-levels)
+(declare feature-symbol-seeds)
+(declare calibration)
+
 (defn calibrate
   [inputs]
   (let [info (update-vals (select-keys (group-by :col-name
                                                  (ds/brief
-                                                   inputs))
+                                                  inputs))
                                        feature-names)
                           peek)]
-    info
     (into {}
           (for [feat feature-names]
             (let [level (hd/level num-levels)
@@ -122,6 +121,9 @@
 ;; ---------------------------------------------
 
 (declare attention-mask)
+(declare species->seed)
+(declare decoder-threshold)
+(declare species-seeds)
 
 (defn train!
   [sdm train-dat]
@@ -155,12 +157,6 @@
              (def decoder-threshold 2)
              (def test-split 0.9)
              (def num-levels 10)
-             (def species
-               ["Iris-setosa" "Iris-versicolor"
-                "Iris-virginica"])
-             (def feature-names
-               ["SepalLengthCm" "SepalWidthCm"
-                "PetalLengthCm" "PetalWidthCm"])
              (def iris-count
                (count (ds/rows
                        (ds/->dataset

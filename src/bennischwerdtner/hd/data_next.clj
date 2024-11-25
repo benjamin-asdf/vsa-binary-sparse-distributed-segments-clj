@@ -10,22 +10,104 @@
             [bennischwerdtner.hd.core :as hd]
             [tech.v3.datatype.unary-pred :as unary-pred]
             [tech.v3.datatype.argops :as dtype-argops]
-            [bennischwerdtner.hd.impl.item-memory-torch :as
-             item-memory-torch]
-            [bennischwerdtner.hd.item-memory :as item-memory
-             :refer
-             [ItemMemory m-clj->vsa m-cleanup m-cleanup*
-              m-cleanup-verbose]]))
+            [libpython-clj2.require :refer [require-python]]
+            [libpython-clj2.python.ffi :as py-ffi]
+            [libpython-clj2.python :refer [py. py.. py.-]
+             :as py]))
+
+(defn cleanup-idx
+  ([mem x] (cleanup-idx mem x 0.18))
+  ([mem x threshold]
+   (let [scores (hd/similarity mem x)
+         [value index] (into [] (torch/max scores :dim -1))]
+     (when (<= threshold (py.. value item))
+       index))))
+
+(defn cleanup-1
+  ([mem x] (cleanup-1 mem x 0.18))
+  ([mem x threshold]
+   (some->> (cleanup-idx mem x threshold)
+            (py/get-item mem))))
+
+(defn cleanup-verbose-1
+  ([mem x] (cleanup-verbose-1 mem x 0.18))
+  ([mem x threshold]
+   (let [scores (hd/similarity mem x)
+         [value index] (into [] (torch/max scores :dim -1))]
+     (when (<= threshold (py.. value item))
+       {:idx index
+        :item (torch/index_select mem -2 index)
+        :sim value}))))
+
+(defn cleanup*-1
+  [mem x threshold]
+  (let [scores (hd/similarity mem x)]
+    (py/get-item mem (torch/ge scores threshold))))
+
+
+;; (defn cleanup-verbose*
+;;   ([mem x] (cleanup-verbose-1 mem x 0.18))
+;;   ([mem x threshold]
+;;    (let [scores (hd/similarity mem x)
+;;          [value index] (into [] (torch/max scores :dim -1))]
+;;      (when (<= threshold (py.. value item))
+;;        {:idx index
+;;         :item (torch/index_select mem -2 index)
+;;         :sim value}))))
+
+(comment
+  (def mem (hd/seed 2))
+  (cleanup-1 mem (py/get-item mem 0))
+  (cleanup-idx mem (py/get-item mem 0)))
+
+(defn item-memory->clj
+  ([m x threshold] (item-memory->clj m x threshold 1))
+  ([{:keys [item->idx idx->item pool]} x threshold n]
+   (torch/nonzero (torch/ge (hd/similarity pool x)
+                            threshold))))
+
+
+(defn item-memory->clj*
+  [{:keys [item->idx items pool]} x threshold]
+  (map (comp items #(py.. % item))
+       (torch/nonzero (torch/ge (hd/similarity pool x)
+                                threshold))))
+
+(def item-memory->clj (comp first item-memory->clj*))
+
+(defn item-memory-next
+  [{:keys [items pool]}]
+  (if (< (py.. pool (size 0)) (count items))
+    (throw (ex-info "Item memory is full"))
+    [(count items) (py/get-item pool (count items))]))
+
+(defn item-memory-clj->vsa
+  [mem item]
+  (or (when-let [x ((:item->vsa mem) item)] [mem x])
+      (let [[idx x] (item-memory-next mem)]
+        [(-> mem
+             (update :item->vsa assoc item x)
+             (update :items conj item)) x])))
 
 (def ^:dynamic *item-memory*
-  (item-memory/codebook-item-memory 1000))
+  (atom {:item->vsa {} :items [] :pool (hd/seed 1000)}))
 
-(defn clj->vsa [obj] (m-clj->vsa *item-memory* obj))
-(defn cleanup-verbose
-  ([q] (m-cleanup-verbose *item-memory* q))
-  ([q threshold] (m-cleanup-verbose *item-memory* q threshold)))
-(defn cleanup [q] (m-cleanup *item-memory* q))
-(defn cleanup* [q] (m-cleanup* *item-memory* q))
+(defn clj->vsa
+  [item]
+  (let [[new-mem x] (item-memory-clj->vsa @*item-memory*
+                                          item)]
+    (reset! *item-memory* new-mem)
+    x))
+
+(defn vsa->clj
+  ([item] (vsa->clj item 0.18))
+  ([item threshold]
+   (item-memory->clj* @*item-memory* item threshold)))
+
+(def cleanup* vsa->clj)
+(def cleanup (comp first cleanup*))
+
+;; -------------------------------------------------------
 
 (defn clj->vsa*-1
   [obj]
@@ -39,6 +121,8 @@
                                obj))
         (sequential? obj) (map clj->vsa*-1 obj)
         :else (clj->vsa obj)))
+
+(defn vsa->clj [q])
 
 (declare clj->vsa*)
 
@@ -115,38 +199,37 @@
     :else (clj->vsa obj)))
 
 
-
-
 (comment
+
+
   (hd/similarity (clj->vsa :a) (clj->vsa :a))
   (hd/similarity (clj->vsa :a) (clj->vsa :b))
   (hd/similarity (clj->vsa :a) (clj->vsa :c))
-  (cleanup
-   (clj->vsa* [:. [:* :a :b] :a]))
-  (cleanup
-   (clj->vsa* [:+ :a :b]))
 
-  (do
-    (def *item-memory* (item-memory/codebook-item-memory 10))
-    (cleanup*
-     (clj->vsa* [:+ :a :b]))
-    (cleanup-verbose
-     (clj->vsa* [:+ :a :b])))
-  (clj->vsa* [:* :a :b])
+  (cleanup* (clj->vsa* [:. [:* :a :b] :a]))
+
+  (cleanup* (clj->vsa* [:+ :a :b]))
 
   (cleanup (clj->vsa* [:> :a]))
   (cleanup* (clj->vsa* [:< [:> :a 1]]))
+
 
   (cleanup*
    (clj->vsa*
     [:+ [:-- :a 0.5] [:-- :b 0.5]]))
 
-  (cleanup* (clj->vsa* [:* :c [:+ [:-- :a 0.5] [:-- :b 0.5]]]))
+  (cleanup*
+   (clj->vsa*
+    [:* :c
+     [:+
+      [:-- :a 0.5]
+      [:-- :b 0.5]]]))
+
+
+  (cleanup* (clj->vsa* [:* :c [:+ :a [:-- :b 0.5]]]))
 
   (clj->vsa*
-   [:?=
-    [:* :c [:+ [:-- :a 0.5] [:-- :b 0.5]]]
-    :c])
+   [:?= [:* :c [:+ [:-- :a 0.5] [:-- :b 0.5]]] :c])
 
   (clj->vsa*
    [:?= [:* :c [:+ [:-- :a 0.5] [:-- :b 0.5]]] :b])
@@ -160,8 +243,43 @@
       [:> :b 1]]
      2]))
 
-  (cleanup-verbose (clj->vsa* [:> :a]))
-  (cleanup-verbose (clj->vsa* [:> :a]))
+
+
+  (cleanup*
+   (clj->vsa*
+    [:<
+     [:.
+      [:*> :a :b :c]
+      :a
+      [:> :b 1]]
+     2]))
+
+  (clj->vsa* [:. [:*> :a :b :c] :a [:> :b 1]])
+
+  (cleanup* (clj->vsa* [:*> :a :b :c]))
+
+
+  (cleanup*
+   (clj->vsa*
+    [:. [:*> :a :b :c] :a]))
+
+
+
+  (cleanup*
+   (clj->vsa*
+    [:. [:*> :a :b :c] [:* :a :c]]))
+
+
+
+  (cleanup*
+   (clj->vsa*
+    [:.
+     [:*> :a :b :c]
+     [:> :b]
+     [:>> :c]]))
+
+  (cleanup* (clj->vsa* [:*> :a]))
+  (cleanup* (clj->vsa* [:*> :a :b]))
 
   (hd/similarity
    (hd/permute (clj->vsa* :a))
@@ -169,31 +287,42 @@
 
   (hd/similarity
    (hd/permute (clj->vsa* :a))
-   (clj->vsa* [:> :a])))
+   (clj->vsa* [:> :a]))
 
 
 
-(comment
-  (def a (hd/seed))
-  (def b (hd/seed))
-  (def c (hd/thin (hd/superposition a b)))
-  (item-memory-torch/codebook-weights
-   (item-memory-torch/->codebook-matrix [a b c])
-   c)
-  (item-memory-torch/codebook-weights
-   (item-memory-torch/->codebook-matrix [a b c])
-   b)
-  ;; tensor([ 0., 20.,  8.], device='cuda:0',
-  ;; dtype=torch.float16)
-  (item-memory-torch/codebook-max
-   (item-memory-torch/->codebook-matrix [a b c])
-   a)
-  (item-memory-torch/codebook-max
-   (item-memory-torch/->codebook-matrix [a b c])
-   c)
-  (pyutils/ensure-jvm
-   (:idxs (item-memory-torch/codebook-cleanup-verbose
-           hd/default-opts
-           (item-memory-torch/->codebook-matrix [a b c])
-           c
-           0.1))))
+  (clj->vsa* [:*.< :a :b :c])
+
+
+
+  (let [a (clj->vsa* :a)
+        b (clj->vsa* :b)
+        c (clj->vsa* :c)]
+    ;; (clj->vsa*
+    ;;  [:*.< a b c])
+    (let [transition (clj->vsa* [:**> a b c])]
+      (clj->vsa* [:*.< transition [:_ b c]])))
+
+
+  (cleanup* (clj->vsa* [:. [:**> :a :b :c] :b [:> :c]]))
+
+  (cleanup*
+   (let [transition (clj->vsa* [:**> :a :b :c])]
+     (clj->vsa* [:*.< transition :_ :b :c])))
+  '(:a)
+
+  (cleanup*
+   (let [transition (clj->vsa* [:**> :a :b :c])]
+     (clj->vsa* [:*.< transition :a :_ :c])))
+  '(:b)
+
+
+  (cleanup*
+   (let [transition (clj->vsa* [:**> :a [:+ :b1 :b2] :c])]
+     (clj->vsa* [:*.< transition :a :_ :c])))
+  '(:b1 :b2)
+
+
+
+
+  )

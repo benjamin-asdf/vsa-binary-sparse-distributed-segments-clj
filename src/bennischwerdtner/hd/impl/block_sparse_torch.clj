@@ -68,6 +68,12 @@
 
 ;; ----------------
 
+(defn reshape-to-N
+  [x {:as opts :bsdc-seg/keys [N]}]
+  (if (hv? opts x)
+    [(py.. x (view -1 N))]
+    (mapcat #(reshape-to-N % opts) x)))
+
 (defn bind-1
   "
   Returns a hdv that is the bind of `a` and `other`.
@@ -77,16 +83,18 @@
   [{:as opts
     :bsdc-seg/keys [segment-count segment-length N]} a alpha
    other]
-
-  (let [tens (py.. (torch/stack (vec (concat [a] other)))
-               (view -1 segment-count segment-length))
+  (let [tens (py.. (torch/stack
+                     (vec (concat (reshape-to-N a opts)
+                                  (reshape-to-N other
+                                                opts))))
+                   (view -1 segment-count segment-length))
         indices (-> tens
                     (torch/argmax :dim 2))
         _ (py.. (torch/narrow indices
                               0
                               1
                               (dec (py.. indices (size 0))))
-            (mul_ alpha))]
+                (mul_ alpha))]
     (indices->hv opts
                  (-> indices
                      (torch/sum 0)
@@ -114,20 +122,23 @@
       (py.. (view -1 N))))
 
 (defn superposition
-  [{:bsdc-seg/keys [segment-length segment-count N]} tensor
-   tensors]
-  (torch/sum (py.. (torch/stack (vec (concat [tensor]
-                                             tensors)))
-                   (view -1 N))
+  [{:as opts
+    :bsdc-seg/keys [segment-length segment-count N]} a
+   other]
+  (torch/sum (py.. (torch/stack
+                     (vec (concat (reshape-to-N a opts)
+                                  (reshape-to-N other
+                                                opts))))
+                   (view -1 segment-count segment-length))
              0))
 
 (defn thin
   [{:as opts
     :bsdc-seg/keys [segment-count segment-length N]} tens]
   (indices->hv
-   opts
-   (-> (py.. tens (view -1 segment-count segment-length))
-       (torch/argmax :dim 2))))
+    opts
+    (-> (py.. tens (view -1 segment-count segment-length))
+        (torch/argmax :dim 2))))
 
 ;; -----------------------------------
 
@@ -167,6 +178,7 @@
 
 ;; -----------------------------------------------------------
 
+;; This version stops working when num-levels > segment-count.
 (defn level
   [{:as opts :bsdc-seg/keys [segment-count]} num-levels]
   (let [seeds (seed opts 2)
@@ -175,25 +187,15 @@
      (into []
            (for [n (range num-levels)]
              (let [segments-a (* bin-len n)
-                   segments-b (- segment-count
-                   segments-a)]
+                   segments-b (- segment-count segments-a)]
                (superposition
                 opts
                 (keep-segments opts
                                (py/get-item seeds 0)
                                segments-a)
                 [(keep-segments opts
-                                (py/get-item seeds
-                                1)
-                                segments-b)]))))))
-  ;; (let [seeds (seed opts 2)
-  ;;       bin-len (/ segment-count num-levels)]
-  ;;   (into []
-  ;;         (for [n (range num-levels)]
-  ;;           (let [segments-a (* bin-len n)
-  ;;                 segments-b (- segment-count segments-a)]
-  ;;             [:a segments-a :b segments-b]))))
-  )
+                                (py/get-item seeds 1)
+                                segments-b)])))))))
 
 ;; -----------------------------------------------------------
 
@@ -306,7 +308,8 @@
          :bsdc-seg/segment-length 5}
         (torch/tensor [0 2 0 1 0
                        ;;
-                       0 2 0 0 1]))
+                       0 2 0 0 1]
+                      :device *torch-device*))
   ;; ------------------------
   (thin {:bsdc-seg/N 10
          :bsdc-seg/segment-count 2

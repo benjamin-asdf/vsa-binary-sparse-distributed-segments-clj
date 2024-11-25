@@ -92,6 +92,11 @@
      :torch (impl.torch/->empty default-opts batch-size))))
 
 (defn level
+  "Returns `num-levels` seeds which are level-correlated.
+
+  The first and the last are dissimilar, while the ones
+  in between are gradual between the 2.
+  "
   [num-levels]
   (case default-implementation
     :torch (impl.torch/level default-opts num-levels)))

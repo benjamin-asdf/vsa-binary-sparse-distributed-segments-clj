@@ -100,6 +100,7 @@
 ;;
 
 ;; ------------------------------
+
 (defn cleanup
   ([mem x] (cleanup mem x 0.18))
   ([mem x threshold]
